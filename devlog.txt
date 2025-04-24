@@ -1,0 +1,434 @@
+# MACRU DEVELOPMENT LOG
+
+## Overview
+This file serves as a comprehensive knowledge base for the MACRU application development process. It tracks changes, implementations, and architectural decisions to maintain coherence across the codebase and avoid breaking changes.
+
+### [2025-04-26] LLM Selector UI and User Preferences Implementation
+- **Files Affected**:
+  - `lib/services/user-preferences.ts` (new)
+  - `components/ui/LLMSelector.tsx` (new)
+  - `app/dashboard/settings/page.tsx` (new)
+  - `components/ui/tabs.tsx` (new)
+  - `components/ui/command.tsx` (new)
+  - `components/ui/popover.tsx` (new)
+  - `components/ui/dialog.tsx` (new)
+  - `components/ui/badge.tsx` (new)
+- **Dependencies Added**:
+  - cmdk
+  - @radix-ui/react-dialog
+  - @radix-ui/react-popover
+  - @radix-ui/react-tabs
+  - class-variance-authority
+  - clsx
+  - tailwind-merge
+- **Description**: Implemented user preferences for LLM selection and created a user interface for selecting and managing LLM models, including a comprehensive settings page.
+- **Implementation Notes**:
+  - Created a user preferences service with localStorage persistence
+  - Implemented an LLM selector component with dropdown interface
+  - Added visual indicators for model availability and status
+  - Built UI components for the command palette, popover, dialog, and badge
+  - Created a settings page with tabs for different configuration categories
+  - Implemented real-time updating of selected LLM model
+  - Ensured preferences persist across browser sessions
+  - Added fallback defaults for server-side rendering
+- **Potential Impacts**:
+  - Users can now select their preferred LLM model for all app features
+  - Preferences are preserved between sessions
+  - Framework established for adding additional user preferences
+  - Settings UI provides a central location for all user configuration
+- **Future Considerations**:
+  - Add additional LLM provider integrations (OpenAI, Anthropic, Cohere)
+  - Implement per-model configuration settings (temperature, token limits)
+  - Create API key management UI in the settings page
+  - Add visual indicators for cost and performance tradeoffs
+
+## Overview
+This file serves as a comprehensive knowledge base for the MACRU application development process. It tracks changes, implementations, and architectural decisions to maintain coherence across the codebase and avoid breaking changes.
+
+## Tech Stack
+- **Framework**: Next.js (App Router)
+- **Language**: TypeScript
+- **Database**: Supabase
+- **Styling**: Tailwind CSS with shadcn/ui components
+- **Memory**: Mem0 for AI memory management
+- **Authentication**: Supabase Auth
+
+## Log Format
+Each entry follows this format:
+```
+### [YYYY-MM-DD] Feature/Component Name
+- **Files Affected**: List of files modified
+- **Dependencies Added**: Any new packages installed
+- **Description**: Detailed explanation of changes
+- **Implementation Notes**: Technical details of the implementation
+- **Potential Impacts**: Areas that might be affected by this change
+- **Future Considerations**: Todo items or potential improvements
+```
+
+## Project Structure
+- `app/` - Next.js App Router pages and layouts
+- `components/` - Reusable UI components
+- `lib/` - Utility functions and shared code
+- `public/` - Static assets
+- `logs/` - Application logs and error tracking
+
+## Environment Variables
+- `NEXT_PUBLIC_SUPABASE_URL` - Supabase project URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Supabase anonymous key
+- `MEM0_API_KEY` - API key for Mem0 integration
+
+## Entries
+
+### [2025-04-24] LLM Router Implementation
+- **Files Affected**:
+  - `lib/llmRouter.ts` (updated)
+  - `lib/credentials.ts` (new)
+  - `app/api/llm/test/route.ts` (updated)
+  - `app/api/llm/stream-proxy/route.ts` (new)
+  - `app/llm-test/page.tsx` (updated)
+- **Dependencies Added**:
+  - @google/generative-ai
+- **Description**: Implemented the LLM router system that abstracts different language model providers behind a common interface, with initial support for Google's Gemini model.
+- **Implementation Notes**:
+  - Created an extensible router architecture with provider interfaces for multiple LLM services
+  - Implemented the GeminiProvider class for Google's Gemini API
+  - Developed a secure credentials manager in `lib/credentials.ts` for API key management
+- Built a non-streaming API endpoint for LLM responses
+  - Created a test UI in `app/llm-test/page.tsx` for interactive testing
+- Implemented robust error handling
+  - Added token counting functionality for future cost tracking
+- **Potential Impacts**:
+  - Applications can now use LLM capabilities through a standardized interface
+- The system supports non-streaming responses
+  - The abstraction layer allows for easy addition of other providers in the future
+  - API keys are handled securely via environment variables
+
+### [2025-04-19] Document Processing Pipeline Implementation
+- **Files Affected**:
+  - `lib/services/text-extractor.ts` (new)
+  - `lib/services/document-chunker.ts` (new)
+  - `lib/services/embedding-service.ts` (new)
+  - `lib/services/document-processor.ts` (new)
+  - `lib/types/document.ts` (updated)
+  - `app/api/documents/ingest/route.ts` (new)
+  - `lib/services/__tests__/text-extractor.test.ts` (new)
+  - `lib/services/__tests__/document-chunker.test.ts` (new)
+  - `lib/services/__tests__/embedding-service.test.ts` (new)
+  - `lib/services/__tests__/document-processor.test.ts` (new)
+  - `app/api/documents/ingest/__tests__/route.test.ts` (new)
+  - `scripts/test-document-pipeline.ts` (new)
+- **Dependencies Added**:
+  - pdf-parse
+  - mammoth
+- **Description**: Completed the implementation of the document processing and ingestion pipeline, including text extraction, chunking, embedding generation, and API endpoints.
+- **Implementation Notes**:
+  - Created TextExtractor service for extracting text from PDF, DOCX, and TXT files
+  - Implemented DocumentChunker service with multiple chunking strategies (fixed, paragraph, semantic)
+  - Developed EmbeddingService for generating vector embeddings from document chunks
+  - Created DocumentProcessor service to orchestrate the entire pipeline
+  - Built API endpoints for document ingestion and status checking
+  - Added comprehensive testing for all components
+  - Implemented error handling throughout the pipeline
+  - Added support for configurable chunking parameters
+  - Integrated the system with Supabase for storage and database operations
+- **Potential Impacts**:
+  - Users can now process documents to extract embeddings for semantic search
+  - The system supports different file types and chunking strategies
+  - Pipeline is modular and extensible for future enhancements
+  - Comprehensive error handling ensures robustness
+- **Future Considerations**:
+  - Add support for more document types (HTML, Markdown, etc.)
+  - Implement caching mechanisms to avoid redundant processing
+  - Optimize performance for large documents
+  - Add progress tracking for long-running processing jobs
+  - Explore different embedding models for improved semantic search
+  - Consider adding document preprocessing options (cleaning, formatting)
+  - Implement batch processing for multiple documents 
+
+### [2025-04-12] Document Processing Database Schema Setup
+- **Files Affected**:
+  - `scripts/migrations/create_document_processing_tables.sql` (new)
+  - `lib/types/document.ts` (new)
+  - `lib/types/database.types.ts` (updated)
+- **Dependencies Added**: None
+- **Description**: Created the database schema for the document processing and ingestion pipeline, including tables for documents, chunks, and embeddings with pgvector extension support.
+- **Implementation Notes**:
+  - Enabled pgvector extension in Supabase Postgres for vector similarity search
+  - Created Documents table to store metadata about processed documents
+  - Created Chunks table to store text segments extracted from documents
+  - Created Embeddings table with vector type to store embeddings of chunks
+  - Set up appropriate indexes including vector index on embeddings column
+  - Implemented Row Level Security (RLS) policies for all tables
+  - Created TypeScript interfaces to match the database schema
+  - Added type guards for runtime type checking
+  - Updated database.types.ts with the new tables for Supabase typings
+- **Potential Impacts**:
+  - This schema enables storing document texts in chunks and their vector embeddings
+  - The pgvector extension allows for efficient similarity searches
+  - RLS policies ensure users can only access their own documents
+  - Vector indexes improve performance for similarity queries
+- **Future Considerations**:
+  - Optimize vector indexing parameters based on dataset size and performance
+  - Consider chunking strategies based on document types
+  - Potentially add versioning support for document revisions
+  - Evaluate embedding model dimensions and adjust vector size accordingly 
+
+### [2025-04-10] Client Component Fixes and File Upload Testing
+- **Files Affected**:
+  - `app/components/auth/SignupForm.tsx` (updated)
+  - `app/components/auth/ResetPasswordForm.tsx` (updated)
+  - `lib/services/file-service.ts` (updated)
+  - `components/ui/file-upload.tsx` (updated)
+  - `app/file-upload-test/page.tsx` (updated)
+- **Dependencies Added**: None
+- **Description**: Fixed authentication component rendering issues by adding "use client" directives and enhanced file upload testing with mock services.
+- **Implementation Notes**:
+  - Added "use client" directive to authentication form components that use React hooks
+  - Fixed file upload service to use consistent bucket names ("documents" instead of "files")
+  - Enhanced error handling in FileService to provide more detailed error messages
+  - Added support for mock upload services to test file upload component without authentication
+  - Implemented test page with mock service integration for isolated component testing
+  - Fixed the Progress component import capitalization in file-upload.tsx
+- **Potential Impacts**:
+  - Authentication components now render properly in the App Router
+  - File upload testing was possible without requiring authentication using a dedicated test page
+  - Improved error messages for troubleshooting upload issues
+  - Better component isolation for testing purposes
+- **Future Considerations**:
+  - Complete email verification flow implementation
+  - Add more robust error handling for authentication flows
+  - Implement comprehensive test suite for upload components
+  - Consider adding mock services for other components to facilitate testing 
+
+### [2025-04-09] File Management System Completion
+- **Files Affected**:
+  - `components/ui/file-list.tsx` (new)
+  - `components/ui/file-management.tsx` (new)
+  - `app/dashboard/files/page.tsx` (new)
+  - `lib/services/file-service-server.ts` (updated)
+  - `lib/services/file-service.ts` (updated)
+- **Dependencies Added**: None
+- **Description**: Completed the file management system by adding file listing, deletion, and comprehensive integration of upload and management components.
+- **Implementation Notes**:
+  - Implemented FileList component with sorting, pagination, and search features
+  - Created FileManagement component that integrates both upload and list functionality
+  - Added file deletion capability with confirmation dialog
+  - Enhanced error handling throughout the file operations
+  - Implemented file dashboard page with complete management interface
+  - Improved file metadata handling with proper type definitions
+  - Added server-side service functions for secure file operations
+- **Potential Impacts**:
+  - Users now have a complete interface for uploading, viewing, and managing files
+  - File operations are more secure with proper validation and error handling
+  - Improved user experience with intuitive file management workflows
+- **Future Considerations**:
+  - Add file preview functionality for common file types
+  - Implement file sharing between users
+  - Add file version history tracking
+  - Support for folder organization and hierarchical structure
+  - Implement file tagging and advanced search capabilities 
+
+### [2025-04-07] Enhanced File Management System
+- **Files Affected**:
+  - `lib/types/file.ts` (new)
+  - `lib/types/database.types.ts` (updated)
+  - `lib/services/file-service.ts` (updated)
+  - `lib/utils/file-utils.ts` (new)
+  - `components/ui/file-upload.tsx` (new)
+  - `app/api/files/upload/route.ts` (new)
+  - `app/api/files/route.ts` (new)
+  - `app/api/files/[id]/route.ts` (new)
+  - `app/file-upload-test/page.tsx` (updated)
+  - `scripts/migrations/create_files_tables.sql` (new)
+- **Dependencies Added**:
+  - react-dropzone
+  - sonner
+- **Description**: Created a comprehensive file management system with improved UI components, API endpoints, and database structure.
+- **Implementation Notes**:
+  - Defined strongly-typed interfaces for file metadata and API responses
+  - Created database migration script with tables, indices, and RLS policies
+  - Implemented a reusable FileUpload component with drag-and-drop using react-dropzone
+  - Built server-side API endpoints for file CRUD operations
+  - Added client-side FileService for interacting with the API
+  - Created utility functions for file manipulation and validation
+  - Added demo page for testing all file upload functionality
+  - Implemented toast notifications for operation feedback
+- **Potential Impacts**:
+  - Complete file management capabilities for users
+  - Improved user experience with drag-and-drop uploads
+  - Better type safety with TypeScript interfaces
+  - Proper database storage with security controls
+- **Future Considerations**:
+  - Add bulk file operations support
+  - Implement file preview for common formats
+  - Add search and filtering capabilities
+  - Support for resumable uploads and progress tracking
+  - Implement file sharing with permissions
+  - Add integration with cloud services
+  - Create a file browser UI component 
+
+### [2025-04-01] File Upload System Implementation
+- **Files Affected**:
+  - `components/ui/Progress.tsx`
+  - `components/ui/FileUpload.tsx`
+  - `lib/services/file-client.ts`
+  - `scripts/supabase/schema.sql`
+  - `app/file-upload-test/page.tsx`
+- **Dependencies Added**:
+  - @radix-ui/react-progress
+  - uuid
+- **Description**: Implemented a complete file upload system with Supabase Storage integration, progress tracking, and file metadata management.
+- **Implementation Notes**:
+  - Created database schema for file metadata including Row Level Security policies
+  - Fixed the Progress component to use the correct Radix UI package
+  - Implemented FileUpload component with drag-and-drop support and progress tracking
+  - Created a client service for file uploads, validation, and metadata management
+  - Added a test page to demonstrate the file upload functionality
+  - Set up storage bucket with appropriate security rules
+- **Potential Impacts**:
+  - Users can now upload files to their personal storage area
+  - File metadata is securely stored with proper access controls
+  - File uploads are tracked with progress indication
+- **Future Considerations**:
+  - Add file preview functionality
+  - Implement file sharing features
+  - Add file type validation with preview support
+  - Support for larger files with resumable uploads 
+
+### [2025-03-31] User Profile Management and Navigation
+- **Files Affected**: 
+  - `lib/services/user-service.ts`
+  - `lib/types/database.types.ts`
+  - `lib/types/index.ts`
+  - `components/forms/ProfileForm.tsx`
+  - `components/layout/Sidebar.tsx`
+  - `components/layout/UserDropdown.tsx`
+  - `components/ui/theme-provider.tsx`
+  - `components/ui/theme-toggle.tsx`
+  - `app/dashboard/profile/page.tsx`
+  - `app/dashboard/layout.tsx`
+  - `app/layout.tsx`
+  - `tsconfig.json`
+- **Dependencies Added**: 
+  - next-themes
+- **Description**: Implemented user profile management functionality and responsive navigation sidebar with theme switching support.
+- **Implementation Notes**: 
+  - Created user service functions for retrieving and updating user profiles
+  - Implemented profile page with editable form using react-hook-form and zod validation
+  - Developed responsive sidebar with mobile toggle functionality
+  - Added user dropdown with profile information and logout option
+  - Implemented dark/light mode theme switching using next-themes
+  - Set up proper TypeScript types for database and application entities
+  - Enhanced project structure with cleaner imports using path aliases
+- **Potential Impacts**: 
+  - Users can now view and edit their profile information
+  - Application supports both light and dark themes
+  - Improved navigation experience on both desktop and mobile devices
+- **Future Considerations**: 
+  - Add avatar upload functionality
+  - Implement account deletion option
+  - Add additional user preferences
+  - Create more comprehensive user profile fields 
+
+### [2025-03-30] Authentication System Implementation
+- **Files Affected**: 
+  - `lib/context/auth-context.tsx`
+  - `lib/services/auth-service.ts`
+  - `lib/validations/auth.ts` 
+  - `middleware.ts`
+  - `app/components/auth/LoginForm.tsx`
+  - `app/auth/login/page.tsx`
+  - `app/auth/signup/page.tsx`
+  - `app/auth/reset-password/page.tsx`
+  - `app/dashboard/layout.tsx`
+- **Dependencies Added**: 
+  - @hookform/resolvers
+  - react-hook-form
+  - zod
+  - @supabase/ssr
+- **Description**: Implemented a complete authentication system using Supabase Auth, including login, signup, password reset flows, and protected routes.
+- **Implementation Notes**: 
+  - Created AuthContext provider with session management and auth methods (signIn, signUp, signOut, resetPassword)
+  - Implemented reactive auth state using Supabase onAuthStateChange
+  - Added auth-service to encapsulate Supabase auth API calls
+  - Set up middleware for protecting routes and redirecting authenticated/unauthenticated users
+  - Created form validation schemas using Zod
+  - Implemented authentication UI components with shadcn/ui
+  - Added dashboard layout with protected route functionality
+- **Potential Impacts**: 
+  - All protected routes now require authentication
+  - Auth state is globally available through the useAuth hook
+  - Users can authenticate, register, and manage their sessions
+- **Future Considerations**: 
+  - Add email verification flow
+  - Implement social auth providers
+  - Add MFA support
+  - Create user profile management 
+
+### [2025-03-29] Supabase Integration Setup
+- **Files Affected**: 
+  - `lib/supabase.ts`
+  - `lib/database-schema.sql`
+  - `lib/test-connection.ts`
+  - `app/supabase-test/page.tsx`
+  - `.env.local`
+- **Dependencies Added**: 
+  - @supabase/supabase-js
+- **Description**: Set up Supabase client for database interaction and authentication, creating the foundational database schema and Row Level Security policies.
+- **Implementation Notes**: 
+  - Created reusable Supabase client in `lib/supabase.ts`
+  - Implemented helper functions for authentication status
+  - Defined SQL schema with user profiles table and proper RLS policies
+  - Created storage buckets for avatars and documents
+  - Added automatic profile creation on user signup via database trigger
+  - Created a test page to verify Supabase connection
+- **Potential Impacts**: 
+  - This sets up the foundation for all database interactions and authentication
+  - RLS policies will enforce access control for all data
+- **Future Considerations**: 
+  - Extend the database schema for document storage and embeddings
+  - Implement client-side authentication components
+  - Set up server-side authentication middleware 
+
+### [2025-03-28] Initial Project Setup
+- **Files Affected**: Various files in the project root
+- **Dependencies Added**: 
+  - Next.js
+  - TypeScript
+  - Tailwind CSS
+  - shadcn/ui
+- **Description**: Created the initial project structure with Next.js App Router, TypeScript, and Tailwind CSS.
+- **Implementation Notes**: 
+  - Using the Next.js App Router for server components and routing
+  - shadcn/ui components for UI elements
+  - Standard project structure with app, components, and lib directories
+- **Potential Impacts**: None, as this is the initial setup
+- **Future Considerations**: 
+  - Implement Supabase integration
+  - Set up Mem0 for memory management 
+
+### [2025-04-25] Codebase Cleanup
+- **Files Affected**:
+  - `lib/llmRouter.ts` (updated)
+  - `app/llm-test/page.tsx` (updated)
+  - `app/api/llm/test/route.ts` (updated)
+  - `app/api/llm/stream/route.ts` (deleted)
+  - `app/file-upload-test/page.tsx` (deleted)
+  - `app/supabase-test/page.tsx` (deleted)
+  - `lib/test-connection.ts` (deleted)
+  - `devlog.txt` (updated)
+- **Dependencies Added**: None
+- **Description**: Removed unused LLM streaming functionality and early setup/test files to clean up the codebase before proceeding with Task 4 completion and subsequent tasks.
+- **Implementation Notes**:
+  - Deleted the streaming API route (`app/api/llm/stream/route.ts`).
+  - Removed `generateTextStream` methods and `StreamingResponseChunk` interface from `lib/llmRouter.ts`.
+  - Removed streaming toggle and related logic from `app/llm-test/page.tsx`.
+  - Added logging to the non-streaming test route (`app/api/llm/test/route.ts`).
+  - Deleted redundant test pages (`app/file-upload-test/page.tsx`, `app/supabase-test/page.tsx`) and associated utility (`lib/test-connection.ts`).
+  - Updated devlog entries to reflect removed files and functionality.
+- **Potential Impacts**: 
+  - Reduced codebase complexity by removing unused features.
+  - LLM interaction is now exclusively non-streaming.
+  - Removed redundant testing infrastructure.
+- **Future Considerations**: 
+  - Streaming functionality could be revisited and re-implemented if deemed necessary for UX after core features are stable. 

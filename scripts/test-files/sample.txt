@@ -1,0 +1,21 @@
+This is a sample text file for testing the text extraction service.
+
+It contains multiple paragraphs to test paragraph handling.
+
+This paragraph has multiple sentences. It should be properly extracted. The text cleaner should maintain this structure.
+
+Here's a list of items:
+- Item 1
+- Item 2
+- Item 3
+
+And some numbers:
+1. First
+2. Second
+3. Third
+
+The extractor should maintain spaces and basic formatting while removing excessive whitespace.
+
+
+
+This paragraph comes after multiple empty lines, which should be normalized by the cleaner. 
