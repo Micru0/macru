@@ -13,10 +13,9 @@ interface DashboardLayoutProps {
 }
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, session } = useAuth();
   const router = useRouter();
 
-  // This is an extra layer of protection in addition to middleware
   useEffect(() => {
     if (!isLoading && !user) {
       router.push('/auth/login');
@@ -32,6 +31,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     );
   }
 
+  if (!user) {
+    return null;
+  }
+  
   return (
     <div className="min-h-screen">
       <Sidebar />

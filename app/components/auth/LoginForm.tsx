@@ -7,14 +7,12 @@ import * as z from 'zod';
 import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle, EyeIcon, EyeOffIcon } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
 import { Checkbox } from "@/components/ui/checkbox";
+import { useAuth } from '@/lib/context/auth-context';
 
 const loginFormSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email address' }),
@@ -27,11 +25,10 @@ type LoginFormValues = z.infer<typeof loginFormSchema>;
 export function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const registered = searchParams.get("registered") === "true";
-  const supabase = createClientComponentClient();
+  const { signIn } = useAuth();
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginFormSchema),
@@ -47,21 +44,10 @@ export function LoginForm() {
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: data.email,
-        password: data.password,
-      });
-
-      if (error) {
-        setError(error.message);
-        return;
-      }
-
-      router.refresh();
-      router.push('/dashboard');
+      await signIn(data.email, data.password);
     } catch (err) {
       console.error('Login error:', err);
-      setError('Invalid email or password. Please try again.');
+      setError(err instanceof Error ? err.message : 'Login failed. Please check your credentials.');
     } finally {
       setIsLoading(false);
     }
@@ -121,7 +107,7 @@ export function LoginForm() {
                   <FormControl>
                     <Input
                       placeholder="••••••••"
-                      type={showPassword ? "text" : "password"}
+                      type={"password"}
                       autoComplete="current-password"
                       disabled={isLoading}
                       {...field}

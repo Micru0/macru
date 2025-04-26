@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { useAuth } from "@/lib/context/auth-context";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -50,6 +51,7 @@ export function SignupForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const { signUp } = useAuth();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -67,20 +69,10 @@ export function SignupForm() {
     setError(null);
 
     try {
-      // Here you would integrate with your authentication service
-      // For example: await createUser(values);
+      // Use the actual auth service to sign up
+      await signUp(values.email, values.password);
       
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // For demo purposes, pretend registration failure for specific test email
-      if (values.email === "taken@example.com") {
-        throw new Error("Email address is already in use");
-      }
-      
-      // Handle successful registration
-      console.log("Registration successful", values);
-      router.push("/auth/verify-email?email=" + encodeURIComponent(values.email));
+      // If successful, user will be redirected to the verify-email page by the auth context
     } catch (err) {
       console.error("Registration error:", err);
       setError(err instanceof Error ? err.message : "Failed to register. Please try again.");

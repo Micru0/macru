@@ -1,8 +1,8 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '../supabase';
+import { User, Session, SupabaseClient } from '@supabase/supabase-js';
+import { createSupabaseClient } from '../supabase';
 import { AuthService } from '../services/auth-service';
 import { useRouter } from 'next/navigation';
 import { showError } from '../utils/toast';
@@ -20,18 +20,19 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const [supabase] = useState(() => createSupabaseClient());
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const router = useRouter();
 
   useEffect(() => {
-    // Get initial session
     const getInitialSession = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        setSession(session);
-        setUser(session?.user ?? null);
+        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        setSession(initialSession);
+        setUser(initialSession?.user ?? null);
       } catch (error) {
         console.error('Error getting initial session:', error);
       } finally {
@@ -41,19 +42,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     getInitialSession();
 
-    // Subscribe to auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setIsLoading(false);
+      (event, newSession) => {
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
       }
     );
 
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [supabase]);
 
   const signIn = async (email: string, password: string) => {
     try {
@@ -61,12 +60,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { user } = await AuthService.signInWithEmail({ email, password });
       
       if (!user) {
-        throw new Error('No user returned from sign in');
+        throw new Error('Login failed: Missing user data');
       }
       
       setUser(user);
+      
       router.push('/dashboard');
     } catch (error: any) {
+      console.error('AuthContext: Error during signIn:', error);
       showError(error.message);
       throw error;
     } finally {

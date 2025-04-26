@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { createSupabaseClient } from '../supabase';
 import { LoginFormValues, SignupFormValues, ResetPasswordFormValues, UpdatePasswordFormValues } from '../validations/auth';
 
 /**
@@ -9,12 +9,14 @@ export const AuthService = {
    * Sign in with email and password
    */
   async signInWithEmail({ email, password }: LoginFormValues) {
+    const supabase = createSupabaseClient();
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
+      console.error('AuthService: Error during signInWithEmail:', error);
       throw error;
     }
 
@@ -25,15 +27,22 @@ export const AuthService = {
    * Sign up with email and password
    */
   async signUpWithEmail({ email, password }: SignupFormValues) {
+    const supabase = createSupabaseClient();
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: `${origin}/auth/callback`,
+        data: {
+          email_confirmed: false,
+        }
       },
     });
 
     if (error) {
+      console.error('AuthService: Error during signUpWithEmail:', error);
       throw error;
     }
 
@@ -44,12 +53,13 @@ export const AuthService = {
    * Sign out the current user
    */
   async signOut() {
+    const supabase = createSupabaseClient();
     const { error } = await supabase.auth.signOut();
     
     if (error) {
+      console.error('AuthService: Error during signOut:', error);
       throw error;
     }
-
     return true;
   },
 
@@ -57,14 +67,17 @@ export const AuthService = {
    * Reset password for a user
    */
   async resetPassword({ email }: ResetPasswordFormValues) {
+    const supabase = createSupabaseClient();
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/reset-password`,
+      redirectTo: `${origin}/auth/reset-password`,
     });
 
     if (error) {
+      console.error('AuthService: Error during resetPassword:', error);
       throw error;
     }
-
     return true;
   },
 
@@ -72,40 +85,15 @@ export const AuthService = {
    * Update password for a user
    */
   async updatePassword({ password }: UpdatePasswordFormValues) {
+    const supabase = createSupabaseClient();
     const { error } = await supabase.auth.updateUser({
       password,
     });
 
     if (error) {
+      console.error('AuthService: Error during updatePassword:', error);
       throw error;
     }
-
     return true;
   },
-
-  /**
-   * Get the current session
-   */
-  async getSession() {
-    const { data, error } = await supabase.auth.getSession();
-    
-    if (error) {
-      throw error;
-    }
-
-    return data.session;
-  },
-
-  /**
-   * Get the current user
-   */
-  async getUser() {
-    const { data, error } = await supabase.auth.getUser();
-    
-    if (error) {
-      throw error;
-    }
-
-    return data.user;
-  }
 }; 

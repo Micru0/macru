@@ -1,26 +1,31 @@
-import type { Metadata } from "next";
-import "./globals.css";
-import { Inter } from "next/font/google";
-import { AuthProvider } from "@/lib/context/auth-context";
-import { Toaster } from "@/components/ui/sonner";
-import { ThemeProvider } from '@/components/ui/theme-provider';
+import './globals.css'
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import { ThemeProvider } from '@/components/ui/theme-provider'
+import { AuthProvider } from '@/lib/context/auth-context'
+import { Toaster } from '@/components/ui/toaster'
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: "MACRU - Cache-Augmented Generation App",
-  description: "An app for personalized, persistent memories with LLM",
-};
+  title: 'MACRU App',
+  description: 'Unified CAG App for personal knowledge',
+}
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: {
+  children: React.ReactNode
+}) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
           <AuthProvider>
             {children}
             <Toaster />
@@ -28,5 +33,5 @@ export default function RootLayout({
         </ThemeProvider>
       </body>
     </html>
-  );
+  )
 }

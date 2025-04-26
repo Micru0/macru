@@ -3,6 +3,148 @@
 ## Overview
 This file serves as a comprehensive knowledge base for the MACRU application development process. It tracks changes, implementations, and architectural decisions to maintain coherence across the codebase and avoid breaking changes.
 
+## Tech Stack
+- **Framework**: Next.js (App Router)
+- **Language**: TypeScript
+- **Database**: Supabase
+- **Styling**: Tailwind CSS with shadcn/ui components
+- **Memory**: Mem0 for AI memory management
+- **Authentication**: Supabase Auth
+
+## Log Format
+Each entry follows this format:
+```
+### [YYYY-MM-DD] Feature/Component Name
+- **Files Affected**: List of files modified
+- **Dependencies Added**: Any new packages installed
+- **Description**: Detailed explanation of changes
+- **Implementation Notes**: Technical details of the implementation
+- **Potential Impacts**: Areas that might be affected by this change
+- **Future Considerations**: Todo items or potential improvements
+```
+
+## Project Structure
+- `app/` - Next.js App Router pages and layouts
+- `components/` - Reusable UI components
+- `lib/` - Utility functions and shared code
+- `public/` - Static assets
+- `logs/` - Application logs and error tracking
+
+## Environment Variables
+- `NEXT_PUBLIC_SUPABASE_URL` - Supabase project URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Supabase anonymous key
+- `MEM0_API_KEY` - API key for Mem0 integration
+
+## Entries
+
+### [2025-04-29] Authentication Flow and Component Fixes
+- **Files Affected**:
+  - `lib/supabase.ts` (refactored)
+  - `lib/services/auth-service.ts` (updated, logs removed)
+  - `lib/context/auth-context.tsx` (updated, logs removed)
+  - `middleware.ts` (updated, logs removed)
+  - `app/components/auth/LoginForm.tsx` (updated)
+  - `components/forms/ProfileForm.tsx` (updated)
+  - `app/dashboard/page.tsx` (restored, logs removed)
+  - `app/auth/callback/route.ts` (logs removed)
+  - `app/dashboard/layout.tsx` (logs removed)
+  - `app/dashboard/profile/page.tsx` (updated, logs removed)
+  - `components/ui/avatar.tsx` (added)
+  - `components/ui/dropdown-menu.tsx` (added)
+- **Dependencies Added**: None (shadcn components added via CLI)
+- **Description**: Resolved persistent authentication issues where users couldn't log in after email verification due to session synchronization problems between client-side actions and server-side middleware checks. Also fixed subsequent component-level errors that appeared after resolving the auth flow.
+- **Implementation Notes**:
+  - Initially fixed email verification flow (logged previously).
+  - Diagnosed login loop: Client authenticated successfully, but middleware immediately redirected back to login, failing to recognize the new session.
+  - Added extensive logging to `AuthContext`, `AuthService`, and `middleware` to trace the issue.
+  - Refactored client-side Supabase client initialization (`lib/supabase.ts`, `AuthService`, `AuthContext`) to use `@supabase/ssr` helpers (`createBrowserClient`) for consistent cookie handling, resolving the middleware sync problem.
+  - Refactored server-side client initialization in `app/dashboard/profile/page.tsx` to use `@supabase/ssr` helper (`createServerClient`) with correct cookie handling.
+  - Reverted temporary dashboard simplification after confirming auth flow was fixed.
+  - Added missing `avatar` and `dropdown-menu` shadcn/ui components required by the dashboard layout.
+  - Added `"use client"` directive to `ProfileForm.tsx` and `chat-service.ts` to resolve server/client component conflicts.
+  - Fixed linter errors in `ProfileForm.tsx` related to `useToast` import and `updateUserProfile` function call signature.
+  - Removed debugging `console.log` statements from affected files after fixes were confirmed.
+- **Potential Impacts**:
+  - Authentication flow (signup, email verification, login, session management) is now robust and working correctly.
+  - Users can successfully log in and access protected routes like the dashboard and profile.
+  - Core UI components required for the dashboard layout are now present.
+  - Codebase is cleaner after removing temporary debug logs.
+- **Future Considerations**:
+  - Thoroughly test all authenticated routes (/dashboard, /profile, /settings, /files).
+  - Restore full functionality to the dashboard page (ChatInterface, etc.) if it was simplified during debugging (Note: Already restored). 
+
+### [2025-04-28] Authentication Email Verification Fix
+- **Files Affected**:
+  - `app/components/auth/SignupForm.tsx` (updated)
+  - `lib/services/auth-service.ts` (updated)
+  - `middleware.ts` (updated)
+  - `app/auth/callback/route.ts` (new)
+  - `app/auth/check-email/page.tsx` (new)
+- **Dependencies Added**: None
+- **Description**: Fixed the email verification process by connecting the signup form to the auth service and ensuring verification emails are properly sent and handled.
+- **Implementation Notes**:
+  - Updated SignupForm to use the actual Supabase auth service instead of mock implementation
+  - Enhanced email verification configuration in auth-service.ts with proper redirect paths
+  - Added server-side logging to track email verification progress
+  - Created auth callback route to handle verification links redirects
+  - Added a dedicated check-email page to properly inform users after signup
+  - Updated middleware to exclude auth callback routes from authentication checks
+  - Ensured proper cross-browser and server-side compatibility
+- **Potential Impacts**:
+  - Users can now complete the signup process with email verification
+  - Authentication flow is more robust and secure
+  - All authentication-related redirects work correctly
+  - Email verification links properly redirect to the dashboard after confirmation
+- **Future Considerations**:
+  - Add resend verification email functionality
+  - Implement social login options
+  - Add multi-factor authentication
+  - Create a more comprehensive onboarding flow after email verification 
+
+### [2025-04-27] Query Interface and Response Display Implementation
+- **Files Affected**:
+  - `components/ui/query-box.tsx` (new)
+  - `components/ui/textarea.tsx` (new)
+  - `components/ui/chat-message.tsx` (new)
+  - `components/ui/chat-interface.tsx` (new)
+  - `lib/services/chat-service.ts` (new)
+  - `app/dashboard/page.tsx` (updated)
+  - `components/ui/toast.tsx` (new)
+  - `components/ui/use-toast.ts` (new)
+  - `components/ui/toaster.tsx` (new)
+  - `app/layout.tsx` (updated)
+  - `app/api/llm/test/route.ts` (updated)
+- **Dependencies Added**:
+  - uuid
+  - react-markdown
+  - rehype-raw
+  - remark-gfm
+  - @radix-ui/react-toast
+- **Description**: Implemented the query interface and response display components for the chat-based interface, including toast notifications for system feedback.
+- **Implementation Notes**:
+  - Created a reusable QueryBox component for user input with an intuitive interface
+  - Implemented a chat-like interface for displaying messages with proper styling for user and assistant messages
+  - Added Markdown rendering for assistant responses with syntax highlighting and formatting
+  - Built a ChatInterface component that integrates query input and message display
+  - Implemented conversation storage in localStorage for persistence
+  - Created toast notification system for application-wide alerts and feedback
+  - Updated the LLM test route to handle conversation history for context preservation
+  - Fixed various linter errors and TypeScript issues across components
+  - Added loading indicators and error handling throughout the interface
+- **Potential Impacts**:
+  - Users now have a complete interface for interacting with the LLM
+  - Conversation history is preserved and displayed in a chat-like format
+  - Markdown formatting allows for rich content display in responses
+  - Toast notifications provide clear feedback on actions and errors
+  - The foundation is set for integrating with the CAG system in subsequent tasks
+- **Future Considerations**:
+  - Implement server-side conversation storage for multi-device access
+  - Add conversation export/import functionality
+  - Enhance the Markdown rendering with additional plugins
+  - Implement code highlighting and formatting
+  - Add keyboard shortcuts for common actions
+  - Consider adding message editing and deletion capabilities 
+
 ### [2025-04-26] LLM Selector UI and User Preferences Implementation
 - **Files Affected**:
   - `lib/services/user-preferences.ts` (new)
@@ -42,42 +184,31 @@ This file serves as a comprehensive knowledge base for the MACRU application dev
   - Create API key management UI in the settings page
   - Add visual indicators for cost and performance tradeoffs
 
-## Overview
-This file serves as a comprehensive knowledge base for the MACRU application development process. It tracks changes, implementations, and architectural decisions to maintain coherence across the codebase and avoid breaking changes.
-
-## Tech Stack
-- **Framework**: Next.js (App Router)
-- **Language**: TypeScript
-- **Database**: Supabase
-- **Styling**: Tailwind CSS with shadcn/ui components
-- **Memory**: Mem0 for AI memory management
-- **Authentication**: Supabase Auth
-
-## Log Format
-Each entry follows this format:
-```
-### [YYYY-MM-DD] Feature/Component Name
-- **Files Affected**: List of files modified
-- **Dependencies Added**: Any new packages installed
-- **Description**: Detailed explanation of changes
-- **Implementation Notes**: Technical details of the implementation
-- **Potential Impacts**: Areas that might be affected by this change
-- **Future Considerations**: Todo items or potential improvements
-```
-
-## Project Structure
-- `app/` - Next.js App Router pages and layouts
-- `components/` - Reusable UI components
-- `lib/` - Utility functions and shared code
-- `public/` - Static assets
-- `logs/` - Application logs and error tracking
-
-## Environment Variables
-- `NEXT_PUBLIC_SUPABASE_URL` - Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Supabase anonymous key
-- `MEM0_API_KEY` - API key for Mem0 integration
-
-## Entries
+### [2025-04-25] Codebase Cleanup
+- **Files Affected**:
+  - `lib/llmRouter.ts` (updated)
+  - `app/llm-test/page.tsx` (updated)
+  - `app/api/llm/test/route.ts` (updated)
+  - `app/api/llm/stream/route.ts` (deleted)
+  - `app/file-upload-test/page.tsx` (deleted)
+  - `app/supabase-test/page.tsx` (deleted)
+  - `lib/test-connection.ts` (deleted)
+  - `devlog.txt` (updated)
+- **Dependencies Added**: None
+- **Description**: Removed unused LLM streaming functionality and early setup/test files to clean up the codebase before proceeding with Task 4 completion and subsequent tasks.
+- **Implementation Notes**:
+  - Deleted the streaming API route (`app/api/llm/stream/route.ts`).
+  - Removed `generateTextStream` methods and `StreamingResponseChunk` interface from `lib/llmRouter.ts`.
+  - Removed streaming toggle and related logic from `app/llm-test/page.tsx`.
+  - Added logging to the non-streaming test route (`app/api/llm/test/route.ts`).
+  - Deleted redundant test pages (`app/file-upload-test/page.tsx`, `app/supabase-test/page.tsx`) and associated utility (`lib/test-connection.ts`).
+  - Updated devlog entries to reflect removed files and functionality.
+- **Potential Impacts**: 
+  - Reduced codebase complexity by removing unused features.
+  - LLM interaction is now exclusively non-streaming.
+  - Removed redundant testing infrastructure.
+- **Future Considerations**: 
+  - Streaming functionality could be revisited and re-implemented if deemed necessary for UX after core features are stable. 
 
 ### [2025-04-24] LLM Router Implementation
 - **Files Affected**:
@@ -406,29 +537,3 @@ Each entry follows this format:
 - **Future Considerations**: 
   - Implement Supabase integration
   - Set up Mem0 for memory management 
-
-### [2025-04-25] Codebase Cleanup
-- **Files Affected**:
-  - `lib/llmRouter.ts` (updated)
-  - `app/llm-test/page.tsx` (updated)
-  - `app/api/llm/test/route.ts` (updated)
-  - `app/api/llm/stream/route.ts` (deleted)
-  - `app/file-upload-test/page.tsx` (deleted)
-  - `app/supabase-test/page.tsx` (deleted)
-  - `lib/test-connection.ts` (deleted)
-  - `devlog.txt` (updated)
-- **Dependencies Added**: None
-- **Description**: Removed unused LLM streaming functionality and early setup/test files to clean up the codebase before proceeding with Task 4 completion and subsequent tasks.
-- **Implementation Notes**:
-  - Deleted the streaming API route (`app/api/llm/stream/route.ts`).
-  - Removed `generateTextStream` methods and `StreamingResponseChunk` interface from `lib/llmRouter.ts`.
-  - Removed streaming toggle and related logic from `app/llm-test/page.tsx`.
-  - Added logging to the non-streaming test route (`app/api/llm/test/route.ts`).
-  - Deleted redundant test pages (`app/file-upload-test/page.tsx`, `app/supabase-test/page.tsx`) and associated utility (`lib/test-connection.ts`).
-  - Updated devlog entries to reflect removed files and functionality.
-- **Potential Impacts**: 
-  - Reduced codebase complexity by removing unused features.
-  - LLM interaction is now exclusively non-streaming.
-  - Removed redundant testing infrastructure.
-- **Future Considerations**: 
-  - Streaming functionality could be revisited and re-implemented if deemed necessary for UX after core features are stable. 
