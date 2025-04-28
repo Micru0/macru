@@ -37,6 +37,44 @@ Each entry follows this format:
 
 ## Entries
 
+### [2025-04-30] Query Management System Implementation
+- **Files Affected**:
+  - `lib/services/query-service.ts` (new)
+  - `lib/services/query-service-server.ts` (new)
+  - `lib/types/query.ts` (new)
+  - `app/api/queries/route.ts` (new)
+  - `app/api/queries/[id]/route.ts` (new)
+  - `components/ui/query-history.tsx` (new)
+  - `components/ui/query-item.tsx` (new)
+  - `components/ui/chat-interface.tsx` (updated)
+  - `lib/services/chat-service.ts` (updated)
+  - `scripts/migrations/create_queries_tables.sql` (new)
+- **Dependencies Added**: None
+- **Description**: Implemented a comprehensive query management system for storing, retrieving, and displaying user queries and LLM responses, including database schema, API endpoints, and UI components.
+- **Implementation Notes**:
+  - Created database migration script with queries table, indices, and RLS policies
+  - Implemented strongly-typed interfaces for query data structure
+  - Built client-side query service for CRUD operations
+  - Added server-side query service for secure operations
+  - Created API endpoints for query management
+  - Implemented query history component with search and filtering
+  - Added query item component for displaying individual queries
+  - Updated chat interface to persist queries to the database
+  - Enhanced chat service to load queries from history
+  - Added real-time synchronization between UI and database
+  - Implemented proper error handling and loading states
+- **Potential Impacts**:
+  - Users can now view their query history
+  - Queries are persisted between sessions and devices
+  - Chat interface can restore previous conversations
+  - Foundation for advanced query analytics in future tasks
+- **Future Considerations**:
+  - Add query categorization and tagging capabilities
+  - Implement query sharing between users
+  - Add analytics dashboard for query patterns
+  - Support bulk query operations (delete, export)
+  - Implement advanced search with filtering options
+
 ### [2025-04-29] Authentication Flow and Component Fixes
 - **Files Affected**:
   - `lib/supabase.ts` (refactored)
@@ -537,3 +575,179 @@ Each entry follows this format:
 - **Future Considerations**: 
   - Implement Supabase integration
   - Set up Mem0 for memory management 
+
+### [2025-04-27] Memory Layer Implementation (Task 7)
+- **Files Affected**:
+  - `lib/types/memory.ts` (new)
+  - `scripts/migrations/005_create_memory_tables.sql` (new, previously unnumbered `create_memory_tables.sql`)
+  - `lib/services/memory-service.ts` (new)
+  - `lib/services/memory-service-server.ts` (new)
+  - `components/ui/memory-viewer.tsx` (new)
+  - `app/api/llm/test/route.ts` (updated)
+  - `app/dashboard/profile/page.tsx` (updated)
+  - `.env.local` (updated - added `ENABLE_MEMORY_LAYER`)
+  - `scripts/migrations/006_add_website_to_profiles.sql` (new - related fix)
+- **Dependencies Added**: None
+- **Description**: Implemented a persistent, personalized memory system. This allows the application to store and recall user-specific information and context across conversations. Introduced separate client-side and server-side memory services to handle Next.js execution environments.
+- **Implementation Notes**:
+  - Created database schema (`memory_items` table) and migration scripts for storing memories, including types and priorities.
+  - Implemented RLS policies to ensure users can only access their own memories.
+  - Developed `MemoryService` (client-side) and `MemoryServiceServer` (server-side) to handle CRUD operations.
+  - Added basic automatic memory creation heuristics to the API route, triggered by specific user phrases (e.g., "I like...", "Remember that...").
+  - Integrated memory retrieval into the main query API route, adding relevant memories to the LLM prompt context.
+  - Created a `MemoryViewer` component to display stored memories on the user's profile page, including delete functionality.
+  - Made memory layer functionality optional via the `ENABLE_MEMORY_LAYER` environment variable.
+  - Fixed related database schema issue by adding `website` column to `profiles` table.
+- **Potential Impacts**:
+  - LLM responses can now be personalized based on stored user information and past interactions.
+  - Users can view and manage stored memories via their profile.
+  - Foundation laid for more sophisticated memory features (e.g., summarization, advanced retrieval).
+- **Future Considerations**:
+  - Implement more robust automatic memory extraction (potentially using LLM).
+  - Add memory editing capabilities to the UI.
+  - Implement memory encryption for sensitive data.
+  - Refine memory retrieval relevance algorithms (e.g., vector search on memories, better keyword analysis).
+  - Add configuration options for memory behavior (e.g., auto-save toggle).
+  - Remove temporary debugging flags/logs (see Cleanup section below).
+  - Fine-tune the `match_threshold` (currently 0.6) in `/api/llm/test/route.ts` for optimal retrieval relevance vs. recall.
+  - Re-evaluate chunking strategy: Restore more sophisticated chunking (e.g., paragraph or semantic with sentence preservation) now that the core pipeline is stable, and verify performance/memory usage.
+  - Add more robust error handling and reporting for document processing failures.
+  - Implement caching for embeddings if not already fully utilized (`cacheEnabled` is true but might need review).
+
+### [2025-04-27] Notion Connector Setup (Task 8 - Part 1)
+- **Files Affected**:
+  - `lib/types/data-connector.ts` (new)
+  - `lib/connectors/notion.ts` (new)
+  - `scripts/migrations/007_create_connector_tokens_table.sql` (new)
+  - `app/api/connectors/notion/auth/start/route.ts` (new)
+  - `app/api/connectors/notion/auth/callback/route.ts` (new)
+  - `app/dashboard/settings/page.tsx` (updated)
+  - `components/ui/skeleton.tsx` (new)
+- **Dependencies Added**:
+  - @notionhq/client
+- **Description**: Implemented the initial setup for the Notion data connector. This includes the generic DataConnector interface, database schema for storing tokens, Notion OAuth 2.0 flow (start and callback routes), basic connector class structure with token management via Supabase, and UI components in the settings page for connecting/disconnecting.
+- **Implementation Notes**:
+  - Defined `DataConnector` interface in `lib/types/data-connector.ts`.
+  - Created `connector_tokens` table migration script (`007_...sql`) using BYTEA for tokens and RLS.
+  - Enabled `pgsodium` extension in Supabase.
+  - Implemented `/api/connectors/notion/auth/start` to redirect users to Notion for authorization.
+  - Implemented `/api/connectors/notion/auth/callback` to handle code exchange, token retrieval (using `fetch`), and token storage (using Supabase client passed from server route).
+  - Created `NotionConnector` class in `lib/connectors/notion.ts` implementing `DataConnector`, including `connect` (now mostly handled by callback), `disconnect`, `getConnectionStatus`, and placeholder `fetchData`.
+  - Refactored token storage functions (`saveNotionToken`, `getNotionToken`, `deleteNotionToken`) to use Supabase and accept a Supabase client instance.
+  - Added UI to `/dashboard/settings/page.tsx` using `useEffect` to fetch connection status and display connect/disconnect buttons.
+  - Added `Skeleton` component for loading state.
+  - Resolved multiple issues related to Supabase client context (browser vs. server), database upsert failures (table existence, sequence grants, data type handling), and React state flickering.
+  - **[2025-05-01] Post-Implementation Debugging & Fixes:**
+    - **Issue:** Encountered a persistent loop where the Notion connection status check (`/api/connectors/notion/status`) repeatedly failed with `401 Unauthorized`, causing the `/dashboard/settings` UI to flash and become unresponsive.
+    - **Root Cause:** The Notion access token was being incorrectly stored in the `connector_tokens` table as a string representation of a Node.js Buffer (e.g., `"\\\\x7b227479..."`) instead of the plain token string. This happened even after changing the `access_token` column type from `BYTEA` to `TEXT`.
+    - **Fixes Applied:**
+      - Modified `/api/connectors/notion/status/route.ts` to add a check: If the retrieved token started with `"\\\\x"`, it immediately returned `{ isConnected: false }` without calling the Notion API, preventing the `401` loop and stabilizing the UI.
+      - Manually deleted the corrupted token entry from the `connector_tokens` table using SQL (`DELETE FROM public.connector_tokens WHERE user_id = '...' AND connector_type = 'notion';`).
+      - Adjusted the `useEffect` hook in `/dashboard/settings/page.tsx` to depend on `[user.id]` instead of `[user]` to prevent excessive re-fetching and potential UI flashing after the backend fix.
+- **Potential Impacts**:
+  - Users can now authorize Macru to access their Notion account via OAuth.
+  - Connection status is displayed in the settings UI.
+  - Foundation is laid for fetching and ingesting Notion data.
+- **Future Considerations (Remaining parts of Task 8 & related)**:
+  - Implement full content fetching in `NotionConnector.fetchData` (recursive block retrieval and transformation).
+  - Integrate fetched Notion data with the main document ingestion pipeline (`DocumentProcessor`).
+  - Implement actual token encryption using `pgsodium` or Supabase Vault.
+  - Implement CSRF protection using the `state` parameter in the OAuth flow.
+  - Add more robust error handling and logging throughout the connector.
+  - Build UI for selecting specific Notion pages/databases to sync (connector config).
+  - Implement background/manual sync triggering mechanism.
+
+### [2025-05-01] Fix Supabase API Route Authentication (`AuthSessionMissingError`)
+- **Files Affected**:
+  - `app/api/action/route.ts` (updated)
+  - `app/api/llm/test/route.ts` (updated)
+  - `app/api/auth-test/route.ts` (created for debugging, updated)
+  - `middleware.ts` (modified during debugging, reverted)
+  - `devlog.txt` (updated)
+- **Dependencies Added**: None
+- **Description**: Resolved a persistent `AuthSessionMissingError` occurring in API Route Handlers when using `@supabase/ssr`'s `createServerClient` to call `supabase.auth.getUser()`. This error occurred despite a seemingly valid authentication cookie (`sb-*-auth-token`) being present in requests (e.g., via `curl`), blocking testing of the Action Execution Layer (Task 9).
+- **Implementation Notes**:
+  - **Problem:** API routes (`/api/action`, `/api/llm/test`) failed authentication checks, returning 401 errors with `AuthSessionMissingError`.
+  - **Troubleshooting Steps:**
+    - Standardized `createServerClient` usage across routes.
+    - Created a minimal test route (`/api/auth-test`) which also failed.
+    - Attempted passing the client instance from middleware (failed).
+    - Attempted adding full request/response cookie handling to the API route client (failed).
+    - Temporarily disabled middleware (failed).
+    - Verified Supabase environment variables were loaded correctly (passed).
+    - **Root Cause Identified:** The authentication cookie value being used in `curl` test commands was being incorrectly truncated (removing `"base64-"` prefix).
+  - **Solution:** Used the **full, unmodified** `sb-*-auth-token` value copied directly from browser developer tools in `curl` requests.
+  - **Code Fix:** Ensured all relevant API routes (`/api/action`, `/api/llm/test`, `/api/auth-test`) consistently use the `createServerClient` pattern *within* the route handler, getting cookies via `cookies()` from `next/headers`, and including `set`/`remove` handlers that interact with a `NextResponse` object. This pattern was confirmed working in `/api/auth-test` once the correct cookie was used.
+- **Potential Impacts**:
+  - Server-side authentication in API routes using `@supabase/ssr` now functions correctly.
+  - Testing and development of features relying on authenticated API routes (like Task 9.4 UI for action confirmation) are unblocked.
+- **Future Considerations**:
+  - The debugging route `/api/auth-test/route.ts` can potentially be removed if no longer needed.
+  - Marked Task Master subtasks 9.1, 9.2, and 9.3 as 'done'.
+
+### [2025-05-02] Action Layer Configuration & Security (Task 9.5)
+- **Files Affected**:
+  - `scripts/migrations/008_add_action_logs_and_config.sql` (new, updated)
+  - `lib/services/action-logger.ts` (new)
+  - `lib/types/actions.ts` (new)
+  - `lib/utils/rate-limiter.ts` (new)
+  - `app/api/action/route.ts` (updated)
+  - `components/ui/audit-trail-viewer.tsx` (new)
+  - `app/dashboard/settings/page.tsx` (updated)
+  - `lib/types/database.types.ts` (updated)
+- **Dependencies Added**: 
+  - lru-cache
+- **Description**: Implemented key configuration and security features for the Action Execution Layer (Task 9). This included database schema changes for logging and configuration, a logging service, action risk definitions, rate limiting, and an audit trail UI.
+- **Implementation Notes**:
+  - Created migration `008` to add `action_logs` table (with RLS for select/insert) and `action_confirmation_level` column to `profiles`. Made script idempotent using `IF NOT EXISTS` and `DROP POLICY IF EXISTS`.
+  - Implemented `ActionLogger` static class to log action outcomes to the new table.
+  - Defined `ActionRiskLevel` enum and `ACTION_RISK_MAP` in `lib/types/actions.ts` for future use in tiered confirmation.
+  - Implemented a simple in-memory rate limiter using `lru-cache` in `lib/utils/rate-limiter.ts`.
+  - Integrated the rate limiter into the `/api/action` route handler, applying limits per authenticated user and adding `X-RateLimit-*` headers to responses.
+  - Integrated `ActionLogger` into the `/api/action` route to log both successful/failed dispatches and rate limit events.
+  - Created the `AuditTrailViewer` client component to display logs from `action_logs` table, including filtering, searching, and pagination.
+  - Added `AuditTrailViewer` to a new "Security" tab on the `/dashboard/settings` page.
+  - Fixed various issues related to Supabase client initialization in API routes (`createServerClient`, `createBrowserClient`), cookie handling (`await cookies()`), and `SelectItem` values.
+  - Regenerated database types (`database.types.ts`) to include `action_logs` table.
+- **Potential Impacts**: 
+  - API endpoint `/api/action` is now rate-limited per user.
+  - All action attempts (including rate limit blocks) are logged for auditing.
+  - Users can view their action history via the settings page.
+  - Foundation laid for implementing action confirmation levels based on risk.
+- **Future Considerations**: 
+  - Implement tiered confirmation logic using `ACTION_RISK_MAP` and `profiles.action_confirmation_level`.
+  - Implement UI for users to configure their `action_confirmation_level`.
+  - Add ability to view action parameters (`params_snapshot`) in the Audit Trail UI (e.g., in a modal or tooltip).
+  - Dynamically populate the Action Type filter dropdown in `AuditTrailViewer` based on actual log entries.
+  - Replace in-memory rate limiter with a more persistent solution (e.g., Redis via `@upstash/ratelimit`) for production environments.
+  - Remove the temporary `/api/test-logger` route if no longer needed for debugging.
+
+### [2025-05-03] Auth, Memory, and LLM Action Fixes
+- **Files Affected**:
+  - `scripts/migrations/001_create_profiles_table.sql` (Trigger reapplied via Supabase UI)
+  - `lib/services/memory-service-server.ts` (Updated `getRelevantMemories`)
+  - `components/ui/chat-message.tsx` (Updated `code` renderer)
+  - `app/api/llm/test/route.ts` (Removed memory heuristic, updated prompt)
+  - `lib/llmRouter.ts` (Removed test tool, added GCal tool definition)
+- **Dependencies Added**: None
+- **Description**: Addressed several issues related to user signup, memory layer functionality, and LLM behavior preparing for action implementation.
+- **Implementation Notes**:
+  - Fixed the "Database error saving new user" signup error by identifying that the `trigger_set_timestamp` function (created in migration `005`) was needed by the `set_profiles_timestamp` trigger (defined in migration `001`). Re-applied the `set_profiles_timestamp` trigger using the Supabase SQL editor.
+  - Resolved memory retrieval failures (`getRelevantMemories` finding 0 items) by switching from `textSearch` to `ILIKE` and correcting the `.or()` filter syntax (using comma separation) in `memory-service-server.ts`. Also improved keyword cleaning to handle punctuation.
+  - Fixed the React hydration error (`<pre>` inside `<p>`) by modifying the `code` component renderer in `chat-message.tsx` to wrap block code in a `<div>` instead of `<pre>`.
+  - Removed the flawed automatic memory-saving heuristic (regex checks) from the LLM test API route (`app/api/llm/test/route.ts`) to prevent incorrect saving of actions as facts.
+  - Removed the associated short-circuit logic that returned a confirmation message after saving a memory via the heuristic.
+  - Added a function declaration for `googleCalendar.createEvent` to the `getTools` method in `lib/llmRouter.ts` to enable the LLM to propose this action.
+  - Updated the prompt formatting function (`formatPromptWithHistoryAndContext`) in the LLM test API route to explicitly instruct the LLM to use available tools/functions when an action is requested.
+  - Identified that password reset emails are likely not being received due to Supabase's default email provider rate limits (needs custom SMTP configuration).
+- **Potential Impacts**:
+  - New user signup is now working correctly.
+  - Memory retrieval based on keywords is more reliable.
+  - Chat message rendering no longer produces hydration errors for code blocks.
+  - The system no longer incorrectly saves user commands (like scheduling) as memory facts.
+  - The LLM is now aware of the `googleCalendar.createEvent` action and instructed to use it, setting the stage for implementing the action execution flow.
+- **Future Considerations**:
+  - Configure a custom SMTP provider in Supabase for reliable email delivery (password resets, invites, etc.).
+  - Implement the actual Google Calendar integration (OAuth, Connector).
+  - Implement the execution logic for `googleCalendar.createEvent` in `/api/action/route.ts`.
+  - Implement the UI flow for confirming proposed actions.

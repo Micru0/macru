@@ -2,25 +2,25 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { ChatMessage } from '@/components/ui/chat-interface';
+import { Source, ProcessedResponse } from './response-processor';
 
-interface LLMResponse {
+interface ApiResponse {
+  response: ProcessedResponse;
+}
+
+interface ChatServiceResponse {
   content: string;
-  sources?: {
-    title: string;
-    content?: string;
-    url?: string;
-  }[];
+  sources?: Source[];
 }
 
 /**
  * Sends a query to the LLM API and returns the response
- * In future versions, this will implement the CAG querying system
- * For now, it's a simple call to the LLM API
+ * Calls the CAG endpoint which includes document retrieval and context.
  */
 export async function sendQueryToLLM(
   query: string,
   conversationHistory: ChatMessage[] = []
-): Promise<LLMResponse> {
+): Promise<ChatServiceResponse> {
   try {
     // Format conversation history for the LLM
     const formattedHistory = conversationHistory.map((msg) => ({
@@ -42,26 +42,30 @@ export async function sendQueryToLLM(
 
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(errorData.message || 'Failed to get response from LLM');
+      throw new Error(errorData.message || 'Failed to get response from LLM API');
     }
 
-    const data = await response.json();
+    // Parse the API response which now contains the processed response object
+    const apiData: ApiResponse = await response.json();
     
-    // Mock sources for now - in the real implementation this would come from the CAG system
-    const mockSources = query.toLowerCase().includes('document') ? [
-      {
-        title: 'Sample Document',
-        content: 'This is a snippet from the document that contains relevant information.',
-      }
-    ] : undefined;
+    // Extract the content and sources from the processed response
+    const processedResponse = apiData.response;
+    
+    if (!processedResponse || typeof processedResponse.responseText !== 'string') {
+      console.error('[ChatService] Invalid response structure from API:', apiData);
+      throw new Error('Received invalid response structure from the backend.');
+    }
 
+    // Return the content and the actual sources from the API
     return {
-      content: data.response,
-      sources: mockSources,
+      content: processedResponse.responseText,
+      sources: processedResponse.sources,
     };
   } catch (error) {
-    console.error('Error querying LLM:', error);
-    throw new Error('Failed to get a response. Please try again.');
+    console.error('[ChatService] Error querying LLM:', error);
+    // Provide a more specific error message if possible
+    const errorMessage = error instanceof Error ? error.message : 'Failed to get a response. Please try again.';
+    throw new Error(errorMessage);
   }
 }
 
@@ -82,7 +86,7 @@ export function createUserMessage(content: string): ChatMessage {
  */
 export function createAssistantMessage(
   content: string,
-  sources?: LLMResponse['sources']
+  sources?: Source[]
 ): ChatMessage {
   return {
     id: uuidv4(),

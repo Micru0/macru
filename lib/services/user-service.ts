@@ -10,7 +10,7 @@ export async function getUserProfile(supabase: SupabaseClient<Database>) {
   console.log(`getUserProfile: Found user ID: ${user.id}`);
   const { data, error, status } = await supabase
     .from('profiles')
-    .select('*')
+    .select('id, username, full_name, avatar_url, website, email, created_at, updated_at, action_confirmation_level')
     .eq('id', user.id)
     .single();
     

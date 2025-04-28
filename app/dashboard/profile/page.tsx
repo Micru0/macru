@@ -2,8 +2,9 @@ import { Suspense } from 'react';
 import { cookies } from 'next/headers';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { Database } from '@/lib/types/database.types';
-import { getUserProfile } from '@/lib/services/user-service';
+import { getUserProfile, Profile } from '@/lib/services/user-service';
 import ProfileForm from '@/components/forms/ProfileForm';
+import { MemoryViewer } from '@/components/ui/memory-viewer';
 
 async function ProfileContent() {
   const cookieStore = await cookies();
@@ -20,12 +21,17 @@ async function ProfileContent() {
     }
   );
 
-  const profile = await getUserProfile(supabase);
+  const profile: Profile = await getUserProfile(supabase);
   
   return (
-    <div className="container py-6">
-      <h1 className="text-2xl font-bold mb-6">Your Profile</h1>
-      <ProfileForm initialData={profile} />
+    <div className="container py-6 space-y-8">
+      <div>
+        <h1 className="text-2xl font-bold mb-6">Your Profile</h1>
+        <ProfileForm initialData={profile} />
+      </div>
+      <div>
+        <MemoryViewer />
+      </div>
     </div>
   );
 }

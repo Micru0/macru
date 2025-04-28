@@ -1,0 +1,5 @@
+. Further Testing:
+it would be prudent to:
+Test with different documents: Upload a PDF and a DOCX file to ensure the text extraction part of the pipeline works correctly for those formats.
+Test diverse queries: Ask questions that require synthesizing information from multiple chunks within the same document to see how well the context assembly and LLM handle it.
+Observe Threshold: Keep an eye on the retrieval results (Found X relevant chunks) with the 0.6 threshold. If it frequently misses relevant chunks or includes too many irrelevant ones, we might need to tune it later.

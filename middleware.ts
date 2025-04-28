@@ -2,6 +2,12 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
+// Define interfaces for extending NextRequest
+// interface NextRequestWithSupabase extends NextRequest {
+//   supabase?: ReturnType<typeof createServerClient>;
+//   supabaseResponse?: NextResponse;
+// }
+
 // This middleware handles two things:
 // 1. Redirects unauthenticated users from protected routes to the login page
 // 2. Redirects authenticated users from auth pages to the dashboard
@@ -23,36 +29,26 @@ export async function middleware(request: NextRequest) {
           return request.cookies.get(name)?.value;
         },
         set(name: string, value: string, options: CookieOptions) {
-          // If the cookie is updated, update the cookies for the request and response
-          request.cookies.set({ // Update request cookies
+          // Update request cookies for client access in subsequent operations
+          request.cookies.set({ 
             name,
             value,
             ...options,
           });
-          response = NextResponse.next({ // Recreate response with updated request header
-            request: {
-              headers: request.headers,
-            },
-          });
-          response.cookies.set({ // Update response cookies
+          
+          // Mutate response cookies directly (don't recreate response)
+          response.cookies.set({ 
             name,
             value,
             ...options,
           });
         },
         remove(name: string, options: CookieOptions) {
-          // If the cookie is removed, update the cookies for the request and response
-          request.cookies.delete(name); // Update request cookies
-          response = NextResponse.next({ // Recreate response with updated request header
-            request: {
-              headers: request.headers,
-            },
-          });
-          response.cookies.set({ // Update response cookies
-            name,
-            value: '',
-            ...options,
-          });
+          // Update request cookies
+          request.cookies.delete(name); 
+          
+          // Mutate response cookies directly (don't recreate response)
+          response.cookies.delete({ name, ...options }); 
         },
       },
     }
@@ -114,11 +110,12 @@ export const config = {
   matcher: [
     /*
      * Match all request paths except for the ones starting with:
-     * - api (API routes)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
+     * API routes *SHOULD* be included if they need auth/session refresh
      */
-    '/((?!api|_next/static|_next/image|favicon.ico).*)', 
+    // Removed 'api' exclusion from the negative lookahead
+    '/((?!_next/static|_next/image|favicon.ico).*)', 
   ],
-}; 
+};

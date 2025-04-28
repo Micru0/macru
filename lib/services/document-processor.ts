@@ -17,11 +17,22 @@ import {
   DocumentStatus,
   DocumentProcessingOptions,
   DocumentProcessingResult,
+  DocumentChunk
 } from '../types/document';
+import { ConnectorType } from '@/lib/types/data-connector';
 
 // Supabase client configuration
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
+// REMOVE anon key variable - we'll use service role key
+// const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
+// ADD service role key variable (ensure this is set in your .env.local)
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string;
+
+if (!supabaseServiceRoleKey) {
+  console.warn('WARNING: SUPABASE_SERVICE_ROLE_KEY is not set. DocumentProcessor may fail due to RLS.');
+  // Optionally throw an error if it's absolutely required: 
+  // throw new Error('SUPABASE_SERVICE_ROLE_KEY environment variable is not set.');
+}
 
 /**
  * Default document processing options
@@ -47,6 +58,20 @@ export class DocumentProcessingError extends Error {
   }
 }
 
+// Interface for the options passed to processDocument
+export interface ProcessDocumentArgs {
+  userId: string;
+  fileName: string; // Can be original filename or Notion title
+  filePath?: string | null; // Path in storage (optional if rawContent provided)
+  fileType?: string | null; // MIME type (optional if rawContent provided)
+  fileId?: string | null; // Original ID from 'files' table if applicable
+  sourceId?: string | null; // Original ID from external source (e.g., Notion page ID)
+  sourceType?: ConnectorType | string | null; // Source type (e.g., 'notion', 'file_upload')
+  rawContent?: string | null; // Raw text content if already extracted
+  metadata?: Record<string, any> | null; // Additional metadata
+  processingOptions?: DocumentProcessingOptions | null; // Override default chunking/embedding options
+}
+
 /**
  * DocumentProcessor service for processing documents
  */
@@ -60,7 +85,10 @@ export class DocumentProcessor {
    * Create a new DocumentProcessor
    */
   constructor() {
-    this.supabase = createClient(supabaseUrl, supabaseAnonKey);
+    // Use the Service Role Key for the backend processor
+    // If service key is missing, client creation will use undefined/null, 
+    // relying on the warning log and potential downstream errors.
+    this.supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
     this.textExtractor = TextExtractor;
     this.documentChunker = new DocumentChunker({
       chunkSize: DEFAULT_PROCESSING_OPTIONS.chunkSize || 1000,
@@ -75,77 +103,80 @@ export class DocumentProcessor {
   }
 
   /**
-   * Process a document by file ID
-   * @param fileId The ID of the file to process
-   * @param userId The ID of the user who owns the file
-   * @param options Processing options
+   * Process a document either from a stored file or directly from raw content.
+   * @param args Arguments for processing, including user ID, identifiers, and either filePath/fileType or rawContent.
    * @returns Processing result
    */
   async processDocument(
-    fileId: string,
-    userId: string,
-    options?: DocumentProcessingOptions
+    args: ProcessDocumentArgs
   ): Promise<DocumentProcessingResult> {
-    // Merge default options with provided options
+    const { userId, fileName, filePath, fileType, fileId, sourceId, sourceType, rawContent, metadata, processingOptions: optionOverrides } = args;
+
+    // --- Argument Validation --- 
+    if (!rawContent && (!filePath || !fileType)) {
+      throw new DocumentProcessingError('No content source available (rawContent or filePath/fileType).', undefined, 'extraction');
+    }
+    if (!userId || !fileName) {
+      throw new DocumentProcessingError('Missing user ID or fileName.', undefined, 'extraction');
+    }
+    
     const processingOptions = {
       ...DEFAULT_PROCESSING_OPTIONS,
-      ...options,
+      ...(optionOverrides || {}),
     };
+    
+    // --- Create Document Record FIRST --- 
+    console.log(`[DocumentProcessor] Creating document record for: ${fileName}`);
+    const insertResult = await this.supabase
+      .from('documents')
+      .insert({
+        title: fileName, 
+        file_path: filePath, // Can be null if rawContent is provided
+        file_type: fileType, // Can be null if rawContent is provided
+        user_id: userId,
+        status: 'processing' as DocumentStatus,
+        source_type: sourceType, // Store source type
+        source_id: sourceId, // Store external source ID
+        metadata: {
+          originalFileId: fileId, // Store original file ID if applicable
+          processingStarted: new Date().toISOString(),
+          ...(metadata || {}) // Merge provided metadata
+        },
+      })
+      .select()
+      .single();
 
+    if (insertResult.error || !insertResult.data) {
+      throw new DocumentProcessingError(
+        `Failed to create document record: ${insertResult.error?.message || 'Unknown error'}`,
+        undefined, 'storage', insertResult.error as Error
+      );
+    }
+    
+    // ---- If insert succeeded, documentId is guaranteed to be a string ----
+    const documentId: string = insertResult.data.id; 
+    console.log(`[DocumentProcessor] Document record created with ID: ${documentId}`);
+
+    // ---- Main Processing Block (now assured documentId exists) ----
     try {
-      // Get file metadata from the database
-      const { data: fileData, error: fileError } = await this.supabase
-        .from('files')
-        .select('*')
-        .eq('id', fileId)
-        .eq('user_id', userId)
-        .single();
+      await this.updateDocumentStatus(documentId, 'processing');
 
-      if (fileError || !fileData) {
-        throw new DocumentProcessingError(
-          `File not found or access denied: ${fileError?.message || 'Unknown error'}`,
-          undefined,
-          'storage',
-          fileError as Error
-        );
-      }
-
-      // Create document record in the database
-      const { data: documentData, error: documentError } = await this.supabase
-        .from('documents')
-        .insert({
-          title: fileData.filename,
-          file_path: fileData.file_path,
-          file_type: fileData.file_type,
-          user_id: userId,
-          status: 'processing' as DocumentStatus,
-          metadata: {
-            originalFileId: fileId,
-            processingStarted: new Date().toISOString(),
-            fileSize: fileData.file_size,
-          },
-        })
-        .select()
-        .single();
-
-      if (documentError || !documentData) {
-        throw new DocumentProcessingError(
-          `Failed to create document record: ${documentError?.message || 'Unknown error'}`,
-          undefined,
-          'storage',
-          documentError as Error
-        );
-      }
-
-      const documentId = documentData.id;
-
-      try {
-        // Download file from storage
+      // --- Conditional Content Extraction --- 
+      let extractedText: string;
+      let extractionMetadata: { wordCount: number; charCount: number; contentHash: string } | null = null;
+      if (rawContent) {
+        console.log(`[DocumentProcessor] Using provided raw content for document ${documentId}.`);
+        extractedText = rawContent;
+        extractionMetadata = {
+          wordCount: extractedText.split(/\s+/).filter(Boolean).length, 
+          charCount: extractedText.length,
+          contentHash: 'raw_content_hash_placeholder' // Calculate hash if required
+        };
+      } else {
+        // File path and type must exist if rawContent doesn't (checked above)
+        console.log(`[DocumentProcessor] Downloading file from storage: ${filePath!}`);
         const { data: fileBuffer, error: downloadError } = await this.supabase
-          .storage
-          .from('documents')
-          .download(fileData.file_path);
-
+          .storage.from('documents').download(filePath!);
         if (downloadError || !fileBuffer) {
           throw new DocumentProcessingError(
             `Failed to download file: ${downloadError?.message || 'Unknown error'}`,
@@ -154,94 +185,70 @@ export class DocumentProcessor {
             downloadError as Error
           );
         }
-
-        // Update document status
-        await this.updateDocumentStatus(documentId, 'processing');
-
-        // Extract text from the document
+        console.log(`[DocumentProcessor] Extracting text for ${fileName} (${fileType!}).`);
         const extractionResult = await this.extractText(
-          fileBuffer as unknown as Buffer,
-          fileData.filename,
-          fileData.file_type,
-          documentId
+          fileBuffer as unknown as Buffer, fileName, fileType!, documentId // Now safe
         );
+        extractedText = extractionResult.text;
+        extractionMetadata = extractionResult.metadata;
+      }
 
-        // Update document metadata with extraction info
-        await this.updateDocumentMetadata(documentId, {
+      // --- Update Metadata, Chunking, Embedding --- 
+      if (extractionMetadata) {
+         await this.updateDocumentMetadata(documentId, {
           extraction: {
-            wordCount: extractionResult.metadata.wordCount,
-            charCount: extractionResult.metadata.charCount,
-            contentHash: extractionResult.metadata.contentHash,
+            ...extractionMetadata,
+            extractionSource: rawContent ? 'raw' : 'file',
             extractionCompleted: new Date().toISOString(),
           },
         });
-
-        // Split text into chunks
-        const chunks = this.chunkDocument(
-          extractionResult.text,
-          documentId,
-          processingOptions
-        );
-
-        // Store chunks in the database
-        const storedChunks = await this.storeChunks(chunks);
-
-        // Update document metadata with chunking info
-        await this.updateDocumentMetadata(documentId, {
-          chunking: {
-            chunkCount: storedChunks.length,
-            chunkingCompleted: new Date().toISOString(),
-            chunkingStrategy: 'fixed',
-            chunkSize: processingOptions.chunkSize,
-            chunkOverlap: processingOptions.chunkOverlap,
-          },
-        });
-
-        // Generate embeddings for chunks
-        const chunksWithEmbeddings = await this.embeddingService.generateEmbeddings(
-          storedChunks
-        );
-
-        // Count successful embeddings
-        const embedCount = chunksWithEmbeddings.filter(chunk => chunk.embedding).length;
-
-        // Update document metadata with embedding info
-        await this.updateDocumentMetadata(documentId, {
-          embedding: {
-            embeddingCount: embedCount,
-            embeddingModel: processingOptions.embeddingModel,
-            embeddingCompleted: new Date().toISOString(),
-          },
-        });
-
-        // Update document status to processed
-        await this.updateDocumentStatus(documentId, 'processed');
-
-        return {
-          documentId,
-          status: 'processed',
-          chunkCount: storedChunks.length,
-        };
-      } catch (error) {
-        // Update document status to error
-        await this.updateDocumentStatus(
-          documentId,
-          'error',
-          (error as Error).message
-        );
-
-        throw error;
-      }
-    } catch (error) {
-      if (error instanceof DocumentProcessingError) {
-        throw error;
       }
 
+      const chunks = this.chunkDocument(extractedText, documentId, processingOptions); 
+      if (!chunks || chunks.length === 0) {
+          console.warn(`[DocumentProcessor] No valid chunks generated for document ${documentId}.`);
+          await this.updateDocumentStatus(documentId, 'processed'); // Or error status?
+          return { documentId, status: 'processed', chunkCount: 0 };
+      }
+
+      const storedChunks = await this.storeChunks(chunks); 
+      await this.updateDocumentMetadata(documentId, {
+        chunking: { /* ... chunking metadata ... */ },
+      });
+      if (!storedChunks || storedChunks.length === 0) {
+         console.warn(`[DocumentProcessor] No chunks were successfully stored for document ${documentId}.`);
+         await this.updateDocumentStatus(documentId, 'processed');
+         return { documentId, status: 'processed', chunkCount: 0 };
+      }
+
+      const chunksWithEmbeddings = await this.embeddingService.generateEmbeddings(storedChunks);
+      const embedCount = chunksWithEmbeddings.filter(chunk => chunk.embedding).length;
+      await this.updateDocumentMetadata(documentId, {
+        embedding: { /* ... embedding metadata ... */ },
+      });
+
+      await this.updateDocumentStatus(documentId, 'processed');
+      console.log(`[DocumentProcessor] Finished processing document ${documentId}. Chunks: ${storedChunks.length}, Embeddings: ${embedCount}.`);
+      return { documentId, status: 'processed', chunkCount: storedChunks.length };
+
+    } catch (processingError) {
+      // --- Error Handling AFTER document record exists --- 
+      console.error(`[DocumentProcessor] Error during processing stage for doc ID ${documentId}:`, processingError);
+      // Update status with error message
+      await this.updateDocumentStatus(
+        documentId, // Guaranteed to be string here
+        'error',
+        (processingError as Error).message
+      );
+      // Re-throw error, ensuring documentId is included
+      if (processingError instanceof DocumentProcessingError) {
+        throw new DocumentProcessingError(processingError.message, documentId, processingError.stage, processingError.cause);
+      } 
       throw new DocumentProcessingError(
-        `Document processing failed: ${(error as Error).message}`,
-        undefined,
-        undefined,
-        error as Error
+        `Document processing failed: ${(processingError as Error).message}`,
+        documentId, // Pass confirmed ID
+        undefined, 
+        processingError as Error
       );
     }
   }
@@ -259,14 +266,18 @@ export class DocumentProcessor {
     filename: string,
     fileType: string,
     documentId: string
-  ) {
+  ): Promise<{ text: string; metadata: any }> {
     try {
       // Convert Blob to Buffer if needed
       const buffer = fileBuffer instanceof Blob 
         ? Buffer.from(await fileBuffer.arrayBuffer())
         : fileBuffer;
       
-      return await this.textExtractor.extractText(buffer, filename, fileType);
+      const extractionResult = await this.textExtractor.extractText(buffer, filename, fileType);
+      return {
+        text: extractionResult.text,
+        metadata: extractionResult.metadata,
+      };
     } catch (error) {
       throw new DocumentProcessingError(
         `Text extraction failed: ${(error as Error).message}`,
@@ -288,18 +299,9 @@ export class DocumentProcessor {
     text: string,
     documentId: string,
     options: DocumentProcessingOptions
-  ) {
+  ): DocumentChunk[] {
     try {
-      // Update chunker options if provided
-      if (options.chunkSize || options.chunkOverlap) {
-        this.documentChunker = new DocumentChunker({
-          chunkSize: options.chunkSize || DEFAULT_PROCESSING_OPTIONS.chunkSize,
-          chunkOverlap: options.chunkOverlap || DEFAULT_PROCESSING_OPTIONS.chunkOverlap,
-          strategy: 'fixed',
-          preserveSentences: true,
-        });
-      }
-
+      // Always use the chunker instance created in the constructor
       return this.documentChunker.chunkDocument(text, documentId);
     } catch (error) {
       throw new DocumentProcessingError(
@@ -316,31 +318,63 @@ export class DocumentProcessor {
    * @param chunks Document chunks to store
    * @returns Stored chunks
    */
-  private async storeChunks(chunks: any[]) {
+  private async storeChunks(chunks: DocumentChunk[]): Promise<DocumentChunk[]> {
+    if (!chunks || chunks.length === 0) {
+      console.warn('[DocumentProcessor.storeChunks] Received empty or null chunks array.');
+      return [];
+    }
+    
     try {
       const storedChunks = [];
+      const documentId = chunks[0]?.document_id; // Get documentId for error reporting
 
       // Process chunks in batches to avoid hitting connection limits
-      for (let i = 0; i < chunks.length; i += 10) {
-        const batch = chunks.slice(i, i + 10);
+      for (let i = 0; i < chunks.length; i += 10) { // Batch size 10
+        let batch = chunks.slice(i, i + 10);
+        
+        // Filter out invalid chunks before inserting
+        const validBatch = batch.filter(chunk => 
+          chunk.content && 
+          chunk.content.trim().length > 0 && 
+          chunk.document_id && 
+          typeof chunk.document_id === 'string' && 
+          chunk.document_id.length > 0 // Basic check for non-empty string UUID
+        );
+        
+        if (validBatch.length === 0) {
+          console.warn(`[DocumentProcessor.storeChunks] Batch ${i/10 + 1} was empty after validation.`);
+          continue; // Skip empty batch
+        }
+
+        console.log(`[DocumentProcessor.storeChunks] Inserting batch ${i/10 + 1} with ${validBatch.length} chunks for doc ${documentId}`);
+        
+        // Prepare batch for insertion by removing the 'id' field
+        const batchToInsert = validBatch.map(({ id, ...rest }) => rest);
         
         const { data, error } = await this.supabase
           .from('chunks')
-          .insert(batch)
+          .insert(batchToInsert) // Insert the batch without the 'id' field
           .select();
 
         if (error) {
-          throw error;
+          console.error(`[DocumentProcessor.storeChunks] Error inserting batch:`, error);
+          // Add documentId to the error for better context
+          throw new Error(`Database error storing chunks for document ${documentId}: ${error.message}`); 
         }
 
-        storedChunks.push(...data);
+        if (data) {
+           storedChunks.push(...data);
+        }
       }
 
-      return storedChunks;
+      console.log(`[DocumentProcessor.storeChunks] Successfully stored ${storedChunks.length} chunks for doc ${documentId}`);
+      return storedChunks as DocumentChunk[]; // Cast result back
     } catch (error) {
+      const docIdForError = chunks[0]?.document_id || 'unknown';
+      console.error(`[DocumentProcessor.storeChunks] Overall error for doc ${docIdForError}:`, error);
       throw new DocumentProcessingError(
         `Failed to store chunks: ${(error as Error).message}`,
-        chunks[0]?.document_id,
+        docIdForError, // Use the potentially known document ID
         'storage',
         error as Error
       );

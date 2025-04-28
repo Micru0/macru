@@ -1,0 +1,47 @@
+# Long-Term Fixes & Improvements for MACRU
+
+This file tracks ideas for future enhancements and fixes beyond the initial scope or current tasks.
+
+1.  **Document Ingestion Deduplication:**
+    *   **Problem:** Re-uploading the same file creates duplicate entries in the `documents`, `chunks`, and `embeddings` tables, wasting storage and processing resources.
+    *   **Solution:** Implement content-based deduplication in `lib/services/document-processor.ts`.
+        *   Calculate a hash (e.g., SHA-256) of the uploaded file content.
+        *   Before processing, check if a document with the same hash and user ID already exists in the `documents` table.
+        *   If it exists, skip processing and link the new `files` table entry to the existing `documents` entry (or simply report success without creating a new `files` entry if preferred).
+        *   If it doesn't exist, proceed with processing as normal.
+    *   **Affected Files:** `lib/services/document-processor.ts`, potentially `app/api/documents/ingest/route.ts`.
+
+2.  **Centralized Settings Management (Task 10.1 Deferred):**
+    *   **Problem:** Settings are currently managed via individual `useState` hooks in the `SettingsPage`.
+    *   **Solution:** Implement a more robust, centralized settings management system, possibly using React Context or a state management library (like Zustand or Jotai). This would involve fetching all user settings/profile data once and providing it via context, simplifying individual component logic.
+    *   **Affected Files:** `app/dashboard/settings/page.tsx`, potentially new context file (`lib/context/settings-context.tsx`), updates to services fetching user data (`lib/services/user-service.ts`).
+
+3.  **User Onboarding & Keyboard Shortcuts (Task 10.5 Deferred):**
+    *   **Problem:** No guided introduction for new users or efficiency shortcuts.
+    *   **Solution:** Implement a simple onboarding flow (e.g., modal guide on first login) and add keyboard shortcuts for common actions (e.g., submitting query, navigating tabs).
+    *   **Affected Files:** New onboarding components, updates to layout/query components.
+
+4.  **Enhanced Error Handling & User Feedback:**
+    *   **Problem:** While basic error handling exists, some background processes (like ingestion) might lack clear UI feedback on failure.
+    *   **Solution:** Improve error reporting from background tasks (connectors, ingestion) back to the UI using toasts or status indicators. Provide more informative error messages where possible.
+    *   **Affected Files:** Various API routes, service files, UI components.
+
+5.  **Refine Memory Layer:**
+    *   **Problem:** Current memory implementation is basic.
+    *   **Solution:** Implement suggestions from devlog: more robust auto-extraction, editing UI, encryption, better retrieval (vector search?), configuration options.
+    *   **Affected Files:** `lib/services/memory-service*`, `app/api/llm/*`, `components/ui/memory-viewer.tsx`.
+
+6.  **Complete Notion Connector:**
+    *   **Problem:** Only auth flow is implemented.
+    *   **Solution:** Implement full content fetching (`fetchData`), integration with ingestion pipeline, token encryption, CSRF protection, UI for page selection, sync triggers.
+    *   **Affected Files:** `lib/connectors/notion.ts`, `app/api/documents/ingest/*`, `app/dashboard/settings/page.tsx`, potentially new API routes for sync.
+
+7.  **Action Layer Confirmation Logic:**
+    *   **Problem:** Tiered confirmation based on risk level is not yet implemented.
+    *   **Solution:** Implement logic in `/api/action/route.ts` to check `ACTION_RISK_MAP` and `profiles.action_confirmation_level` before executing actions. Add UI for user to set their level.
+    *   **Affected Files:** `app/api/action/route.ts`, `app/dashboard/settings/page.tsx`.
+
+8.  **Rate Limiter Persistence:**
+    *   **Problem:** Current rate limiter is in-memory only.
+    *   **Solution:** Replace `lru-cache` implementation with a persistent solution like Redis (e.g., using `@upstash/ratelimit`) for production.
+    *   **Affected Files:** `lib/utils/rate-limiter.ts`. 

@@ -62,6 +62,8 @@ export class DocumentChunker {
     documentId: string,
     metadata: Record<string, any> = {}
   ): DocumentChunk[] {
+    // The constructor modification above will force 'fixed' strategy
+    // so this switch case will always go to chunkByFixed
     switch (this.options.strategy) {
       case 'paragraph':
         return this.chunkByParagraph(text, documentId, metadata);
@@ -81,59 +83,50 @@ export class DocumentChunker {
     documentId: string,
     metadata: Record<string, any>
   ): DocumentChunk[] {
-    const { chunkSize, chunkOverlap, preserveSentences } = this.options;
+    const { chunkSize, chunkOverlap } = this.options;
     const chunks: DocumentChunk[] = [];
-    
-    // Ensure we're dealing with clean text
     const cleanedText = this.cleanText(text);
-    
-    // If text is shorter than chunk size, return it as a single chunk
+
+    if (cleanedText.length === 0) {
+      console.warn('[DocumentChunker.chunkByFixed] Input text is empty after cleaning.');
+      return []; // Handle empty text
+    }
+
+    // If text is smaller than chunk size, return it as a single chunk
     if (cleanedText.length <= chunkSize) {
+      console.log('[DocumentChunker.chunkByFixed] Text length <= chunkSize, returning single chunk.');
       return [this.createChunk(cleanedText, documentId, 0, metadata)];
     }
 
-    let startIndex = 0;
     let chunkIndex = 0;
-    
-    while (startIndex < cleanedText.length) {
-      // Calculate the end index for current chunk
-      let endIndex = startIndex + chunkSize;
-      
-      // Adjust if we're going past the end of the text
-      if (endIndex > cleanedText.length) {
-        endIndex = cleanedText.length;
-      } 
-      // Otherwise, adjust to avoid breaking sentences if enabled
-      else if (preserveSentences) {
-        // Find the last sentence boundary before the chunk size limit
-        const lastSentenceBoundary = this.findLastSentenceBoundary(
-          cleanedText.substring(startIndex, endIndex)
-        );
-        
-        if (lastSentenceBoundary > 0) {
-          endIndex = startIndex + lastSentenceBoundary;
-        }
-      }
-      
-      // Extract the chunk content
-      const chunkContent = cleanedText.substring(startIndex, endIndex);
-      
-      // Skip empty chunks
-      if (chunkContent.trim().length > 0) {
-        // Add chunk to the result array
-        chunks.push(this.createChunk(chunkContent, documentId, chunkIndex, metadata));
-        chunkIndex++;
-      }
-      
-      // Move the start index forward for the next chunk, accounting for overlap
-      startIndex = endIndex - chunkOverlap;
-      
-      // Prevent infinite loop if we can't make progress
-      if (startIndex >= endIndex) {
-        startIndex = endIndex;
-      }
+    const step = chunkSize - chunkOverlap;
+
+    // Ensure step size is positive to prevent infinite loops
+    if (step <= 0) {
+        console.error(`[DocumentChunker.chunkByFixed] Invalid configuration: chunkSize (${chunkSize}) must be greater than chunkOverlap (${chunkOverlap}). Returning empty array.`);
+        return []; // Indicate failure due to invalid config
     }
-    
+
+    for (let startIndex = 0; startIndex < cleanedText.length; startIndex += step) {
+        let endIndex = startIndex + chunkSize;
+        // Clamp endIndex to the text length
+        if (endIndex > cleanedText.length) {
+            endIndex = cleanedText.length;
+        }
+
+        const chunkContent = cleanedText.substring(startIndex, endIndex);
+
+        if (chunkContent.trim().length > 0) {
+            chunks.push(this.createChunk(chunkContent, documentId, chunkIndex, metadata));
+            chunkIndex++;
+        }
+
+        // Exit loop if we've processed the last possible segment
+        if (endIndex === cleanedText.length) {
+            break; 
+        }
+    }
+
     return chunks;
   }
 
@@ -289,44 +282,6 @@ export class DocumentChunker {
       metadata: chunkMetadata,
       created_at: new Date().toISOString(),
     };
-  }
-
-  /**
-   * Find the last sentence boundary (period, question mark, exclamation point)
-   * in the given text
-   */
-  private findLastSentenceBoundary(text: string): number {
-    // Use a standard regex to find all sentence boundaries
-    const sentenceEndRegex = /[.!?](?=\s|$)/g;
-    
-    let match;
-    let lastIndex = -1;
-    
-    // Find all matches using exec instead of matchAll
-    while ((match = sentenceEndRegex.exec(text)) !== null) {
-      lastIndex = match.index;
-    }
-    
-    if (lastIndex === -1) {
-      // If no sentence boundaries found, try to find a good break point 
-      // like the end of a paragraph
-      const paragraphBreak = text.lastIndexOf('\n\n');
-      if (paragraphBreak > 0) {
-        return paragraphBreak;
-      }
-      
-      // If that fails too, try to break at the last space
-      const lastSpace = text.lastIndexOf(' ');
-      if (lastSpace > text.length / 2) { // Only use space if it's reasonably far along
-        return lastSpace;
-      }
-      
-      // If all else fails, use the full text
-      return -1;
-    }
-    
-    // Return the position of the last sentence boundary (+1 to include the punctuation)
-    return lastIndex + 1;
   }
 
   /**

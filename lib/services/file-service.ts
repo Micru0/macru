@@ -1,9 +1,9 @@
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createBrowserClient } from '@supabase/ssr';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
 import * as tus from 'tus-js-client';
 import { Database } from '@/lib/types/database.types';
 import { FileMetadata, FileListResponse, FileUploadResponse } from '@/lib/types/file';
-import { createClient } from '@supabase/supabase-js';
 
 // Allowed file types
 const ALLOWED_FILE_TYPES = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
@@ -12,11 +12,6 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 // Constants
 const STORAGE_BUCKET = 'documents';
-
-// Initialize Supabase client
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /**
  * Validates if a file meets the requirements (type, size)
@@ -43,6 +38,10 @@ export function validateFile(file: File): { valid: boolean; error?: string } {
  * Uploads a file to Supabase Storage using standard upload (for files <= 6MB)
  */
 export async function uploadFile(file: File): Promise<FileMetadata> {
+  const supabase = createBrowserClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
   // Validate file
   const validation = validateFile(file);
   if (!validation.valid) {
@@ -78,14 +77,16 @@ export async function uploadFile(file: File): Promise<FileMetadata> {
   const fileMetadata = {
     filename: file.name,
     file_path: filePath,
-    file_type: file.type || fileExtension,
+    file_url: filePath, // Use path as placeholder URL for required field
+    file_type: file.type || '.' + file.name.split('.').pop()?.toLowerCase(),
     file_size: file.size,
     user_id: user.id,
+    // Ensure all non-nullable fields without defaults are present or adjust type/db
   };
 
   const { data: metadataData, error: metadataError } = await supabase
     .from('files')
-    .insert(fileMetadata)
+    .insert(fileMetadata as Database['public']['Tables']['files']['Insert']) // Cast to Insert type
     .select()
     .single();
 
@@ -107,6 +108,10 @@ export async function uploadFileResumable(
   onSuccess?: () => void,
   onError?: (error: Error) => void
 ): Promise<void> {
+  const supabase = createBrowserClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
   // Validate file
   const validation = validateFile(file);
   if (!validation.valid) {
@@ -133,13 +138,15 @@ export async function uploadFileResumable(
   const fileMetadata = {
     filename: file.name,
     file_path: filePath,
-    file_type: file.type || fileExtension,
+    file_url: filePath, // Use path as placeholder URL for required field
+    file_type: file.type || '.' + file.name.split('.').pop()?.toLowerCase(),
     file_size: file.size,
     user_id: session.user.id,
   };
 
-  // Use the SUPABASE_URL from environment variables
-  if (!SUPABASE_URL) {
+  // Use the SUPABASE_URL from environment variables directly
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!supabaseUrl) {
     const error = new Error('Supabase URL is not defined in environment variables');
     if (onError) onError(error);
     throw error;
@@ -148,7 +155,7 @@ export async function uploadFileResumable(
   return new Promise((resolve, reject) => {
     // Create a new tus upload
     const upload = new tus.Upload(file, {
-      endpoint: `${SUPABASE_URL}/storage/v1/upload/resumable`,
+      endpoint: `${supabaseUrl}/storage/v1/upload/resumable`, // Use variable
       retryDelays: [0, 3000, 5000, 10000, 20000],
       headers: {
         authorization: `Bearer ${session.access_token}`,
@@ -177,7 +184,7 @@ export async function uploadFileResumable(
           // Store metadata in database after successful upload
           const { data, error: metadataError } = await supabase
             .from('files')
-            .insert(fileMetadata)
+            .insert(fileMetadata as Database['public']['Tables']['files']['Insert']) // Cast to Insert type
             .select()
             .single();
 
@@ -217,6 +224,10 @@ export async function uploadFileResumable(
  * Retrieves the list of files for the current user
  */
 export async function getUserFiles(): Promise<FileMetadata[]> {
+  const supabase = createBrowserClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     throw new Error('User not authenticated');
@@ -239,6 +250,10 @@ export async function getUserFiles(): Promise<FileMetadata[]> {
  * Gets a temporary URL for a file
  */
 export async function getFileUrl(filePath: string): Promise<string> {
+  const supabase = createBrowserClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
   const { data, error } = await supabase.storage
     .from('documents')
     .createSignedUrl(filePath, 3600); // URL valid for 1 hour
@@ -250,10 +265,21 @@ export async function getFileUrl(filePath: string): Promise<string> {
   return data.signedUrl;
 }
 
-// Export only client-side compatible services
+// Client-side File Service Class
 export class FileService {
-  private readonly storage = supabase.storage;
+  // Declare client and storage properties
+  private readonly supabase: SupabaseClient<Database>;
+  private readonly storage; // Type will be inferred from assignment
   private readonly bucket = 'documents';
+
+  // Initialize client and storage in the constructor using createBrowserClient
+  constructor() {
+    this.supabase = createBrowserClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+    this.storage = this.supabase.storage;
+  }
 
   /**
    * Upload a file to the server
@@ -265,9 +291,20 @@ export class FileService {
   async uploadFile(file: File, metadata?: Record<string, any>): Promise<FileUploadResponse> {
     try {
       // Create a unique file path
-      const filePath = `${Date.now()}_${file.name}`;
+      const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
+      const uniqueFilename = `${uuidv4()}${fileExtension}`;
       
-      // Upload to Supabase storage
+      // Get user ID using the instance client (createBrowserClient handles session)
+      const { data: { user }, error: userError } = await this.supabase.auth.getUser();
+      
+      if (userError || !user) {
+        console.error('FileService.uploadFile: getUser failed:', userError);
+        throw new Error('User not authenticated'); 
+      }
+
+      const filePath = `${user.id}/${uniqueFilename}`;
+
+      // Upload to Supabase storage using the instance client
       const { data, error } = await this.storage
         .from(this.bucket)
         .upload(filePath, file);
@@ -277,30 +314,33 @@ export class FileService {
         throw error;
       }
       
-      // Get public URL
-      const { data: urlData } = await this.storage
-        .from(this.bucket)
-        .getPublicUrl(filePath);
+      // Get public URL - Note: Bucket needs to be public or use signed URLs
+      // const { data: urlData } = this.storage
+      //   .from(this.bucket)
+      //   .getPublicUrl(filePath);
 
-      // Create metadata entry
-      const fileMetadata: Partial<FileMetadata> = {
+      // Create metadata entry (remove file_url)
+      const fileMetadata: Database['public']['Tables']['files']['Insert'] = {
         filename: file.name,
-        file_path: data.path,
-        file_url: urlData.publicUrl,
+        file_path: data.path, 
+        // file_url: data.path, // Removed - Column likely doesn't exist
         file_type: file.type,
         file_size: file.size,
-        metadata: metadata,
+        metadata: metadata, 
+        user_id: user.id
       };
       
-      // Store in database
-      const { data: metadataData, error: metadataError } = await supabase
+      // Store in database using the instance client
+      const { data: metadataData, error: metadataError } = await this.supabase
         .from('files')
-        .insert(fileMetadata)
+        .insert(fileMetadata) 
         .select()
         .single();
       
       if (metadataError) {
         console.error('Supabase database insert error:', metadataError);
+        // Attempt to delete the uploaded file if metadata insertion fails
+        await this.storage.from(this.bucket).remove([filePath]);
         throw metadataError;
       }
       
@@ -336,7 +376,7 @@ export class FileService {
       } = options || {};
       
       // Start building the query
-      let query = supabase
+      let query = this.supabase
         .from('files')
         .select('*', { count: 'exact' });
       
@@ -357,6 +397,7 @@ export class FileService {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
       
+      // Use instance client for query execution
       const { data, error, count } = await query
         .range(from, to)
         .order('created_at', { ascending: false });
@@ -383,7 +424,7 @@ export class FileService {
    */
   async getFile(fileId: string): Promise<FileMetadata> {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('files')
         .select('*')
         .eq('id', fileId)
@@ -414,7 +455,7 @@ export class FileService {
       delete safeUpdates.user_id;
       delete safeUpdates.created_at;
       
-      const { data, error } = await supabase
+      const { data, error } = await this.supabase
         .from('files')
         .update({ ...safeUpdates, updated_at: new Date().toISOString() })
         .eq('id', fileId)
@@ -438,7 +479,7 @@ export class FileService {
   async deleteFile(fileId: string): Promise<boolean> {
     try {
       // First get the file to get the path
-      const { data: fileData, error: fetchError } = await supabase
+      const { data: fileData, error: fetchError } = await this.supabase
         .from('files')
         .select('file_path')
         .eq('id', fileId)
@@ -455,7 +496,7 @@ export class FileService {
       if (storageError) throw storageError;
       
       // Delete metadata from database
-      const { error: dbError } = await supabase
+      const { error: dbError } = await this.supabase
         .from('files')
         .delete()
         .eq('id', fileId);

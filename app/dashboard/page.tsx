@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ChatInterface, ChatMessage } from "@/components/ui/chat-interface";
+import { ChatInterface, ChatMessageType } from "@/components/ui/chat-interface";
 import { sendQueryToLLM, createUserMessage, createAssistantMessage, conversationStorage } from "@/lib/services/chat-service";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
 
 export default function DashboardPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessageType[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [conversationId, setConversationId] = useState<string>("");
   const { toast } = useToast();

@@ -65,7 +65,6 @@ export function ChatMessage({
                 remarkPlugins={[remarkGfm]} 
                 rehypePlugins={[rehypeRaw]}
                 components={{
-                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                   a: ({ href, children }) => (
                     <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                       {children}
@@ -75,14 +74,19 @@ export function ChatMessage({
                   ol: ({ children }) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
                   li: ({ children }) => <li className="mb-1">{children}</li>,
                   // @ts-ignore - inline is provided by react-markdown
-                  code: ({ inline, className, children, ...props }) => {
+                  code: ({ node, inline, className, children, ...props }) => {
                     if (inline) {
                       return <code className="bg-muted px-1 py-0.5 rounded text-sm font-mono" {...props}>{children}</code>;
                     }
+                    // For block code, wrap the code in a div instead of pre to avoid nesting issue
+                    // Apply styling similar to pre for consistency
+                    const match = /language-(\w+)/.exec(className || '');
                     return (
-                      <pre className="bg-muted p-2 rounded-md overflow-x-auto text-sm font-mono my-2">
-                        <code className={className} {...props}>{children}</code>
-                      </pre>
+                      <div className="bg-muted p-2 rounded-md overflow-x-auto text-sm font-mono my-2">
+                        <code className={className} {...props}>
+                          {children}
+                        </code>
+                      </div>
                     );
                   }
                 }}

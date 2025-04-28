@@ -9,145 +9,93 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+// Remove unused cookie import 
+// import { cookies } from 'next/headers';
+// Remove auth-helpers import
+// import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+// Import basic createClient
+import { createClient } from '@supabase/supabase-js'; 
 import { Database } from '@/lib/types/database.types';
 import { documentProcessor } from '@/lib/services/document-processor';
 import { DocumentIngestionRequest, DocumentIngestionResponse } from '@/lib/types/document';
+import { DocumentProcessor } from '@/lib/services/document-processor';
+
+// Keep force-dynamic
+export const dynamic = 'force-dynamic';
+
+// Basic Supabase client details (needed for createClient)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 // API route for document ingestion
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    // Create Supabase client with cookies for authenticated session
-    const supabase = createRouteHandlerClient<Database>({ cookies });
+    // Use the basic Supabase client
+    const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
 
-    // Get authenticated user
-    const { data: { session } } = await supabase.auth.getSession();
+    // Get JWT from Authorization header
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Missing or invalid Authorization header' }, { status: 401 });
+    }
+    const jwt = authHeader.split(' ')[1];
     
-    if (!session || !session.user) {
-      return NextResponse.json(
-        {
-          success: false,
-          status: 'error',
-          message: 'Authentication required',
-          error: 'Unauthorized',
-        } as DocumentIngestionResponse,
-        { status: 401 }
-      );
+    // Validate JWT and get user
+    const { data: { user }, error: userError } = await supabase.auth.getUser(jwt);
+
+    if (userError || !user) {
+      console.error('Authentication error (JWT invalid?):', userError);
+      return NextResponse.json({ error: 'User not authenticated or invalid token' }, { status: 401 });
     }
 
-    // Parse request
-    let body: DocumentIngestionRequest;
-    try {
-      body = await request.json();
-    } catch (error) {
-      return NextResponse.json(
-        {
-          success: false,
-          status: 'error',
-          message: 'Invalid request body',
-          error: 'Bad Request',
-        } as DocumentIngestionResponse,
-        { status: 400 }
-      );
-    }
+    const userId = user.id;
+
+    // Parse request body for file details
+    const { fileId, filePath, fileType, filename } = await request.json();
 
     // Validate required fields
-    if (!body.fileId) {
-      return NextResponse.json(
-        {
-          success: false,
-          status: 'error',
-          message: 'fileId is required',
-          error: 'Bad Request',
-        } as DocumentIngestionResponse,
-        { status: 400 }
-      );
+    if (!fileId || !filePath || !filename) { // fileType might be optional/inferred later
+      return NextResponse.json({ error: 'Missing required file details (fileId, filePath, filename)' }, { status: 400 });
     }
 
-    // Process the document
-    const result = await documentProcessor.processDocument(
-      body.fileId,
-      session.user.id,
-      body.options
+    // Initialize the DocumentProcessor
+    const processor = new DocumentProcessor();
+
+    // Trigger processing (async - don't wait for completion here)
+    // Pass all the necessary details
+    processor.processDocument(fileId, userId, filePath, fileType || '', filename) // Pass empty string if fileType is null/undefined
+      .then(result => {
+        console.log(`Successfully initiated processing for file ${fileId}. Result:`, result);
+      })
+      .catch(error => {
+        console.error(`Error processing document ${fileId}:`, error);
+      });
+
+    // Respond immediately that processing has started
+    return NextResponse.json(
+      { message: 'Document ingestion started', fileId },
+      { status: 202 } 
     );
 
-    // Return the processing result
-    return NextResponse.json({
-      success: true,
-      documentId: result.documentId,
-      status: result.status,
-      message: `Document processed successfully. ${result.chunkCount} chunks created.`,
-    } as DocumentIngestionResponse);
   } catch (error) {
-    console.error('Document ingestion error:', error);
-    
-    // Handle different types of errors
-    if ((error as any).stage === 'extraction') {
-      return NextResponse.json(
-        {
-          success: false,
-          status: 'error',
-          message: 'Failed to extract text from document',
-          error: (error as Error).message,
-        } as DocumentIngestionResponse,
-        { status: 422 }
-      );
-    } else if ((error as any).stage === 'chunking') {
-      return NextResponse.json(
-        {
-          success: false,
-          status: 'error',
-          message: 'Failed to chunk document text',
-          error: (error as Error).message,
-        } as DocumentIngestionResponse,
-        { status: 500 }
-      );
-    } else if ((error as any).stage === 'embedding') {
-      return NextResponse.json(
-        {
-          success: false,
-          status: 'error',
-          message: 'Failed to generate embeddings',
-          error: (error as Error).message,
-        } as DocumentIngestionResponse,
-        { status: 500 }
-      );
-    } else if ((error as any).stage === 'storage') {
-      return NextResponse.json(
-        {
-          success: false,
-          status: 'error',
-          message: 'Failed to store document data',
-          error: (error as Error).message,
-        } as DocumentIngestionResponse,
-        { status: 500 }
-      );
-    }
-    
-    // Generic error
+    console.error('Error in ingestion route:', error);
     return NextResponse.json(
-      {
-        success: false,
-        status: 'error',
-        message: 'Document processing failed',
-        error: (error as Error).message,
-      } as DocumentIngestionResponse,
+      { error: 'Failed to start document ingestion', details: (error as Error).message },
       { status: 500 }
     );
   }
 }
 
-// GET endpoint to check ingestion status by document ID
+// --- GET Handler --- 
+// Keep GET handler using createRouteHandlerClient for now.
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'; 
+import { cookies } from 'next/headers';
+
 export async function GET(
   request: NextRequest
 ): Promise<NextResponse> {
-  try {
-    // Create Supabase client with cookies for authenticated session
-    const supabase = createRouteHandlerClient<Database>({ cookies });
-
-    // Get authenticated user
-    const { data: { session } } = await supabase.auth.getSession();
+    const supabaseGet = createRouteHandlerClient<Database>({ cookies }); // Use different variable name
+    const { data: { session } } = await supabaseGet.auth.getSession(); // Use different variable name
     
     if (!session || !session.user) {
       return NextResponse.json(
@@ -156,80 +104,28 @@ export async function GET(
           status: 'error',
           message: 'Authentication required',
           error: 'Unauthorized',
-        } as DocumentIngestionResponse,
+        } as any, 
         { status: 401 }
       );
     }
-
-    // Get document ID from query params
+    
     const url = new URL(request.url);
     const documentId = url.searchParams.get('documentId');
     
     if (!documentId) {
-      return NextResponse.json(
-        {
-          success: false,
-          status: 'error',
-          message: 'documentId is required',
-          error: 'Bad Request',
-        } as DocumentIngestionResponse,
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, status: 'error', message: 'documentId is required' } as any, { status: 400 });
     }
-
-    // Get document status
-    const { data, error } = await supabase
+    
+    const { data, error } = await supabaseGet // Use different variable name
       .from('documents')
       .select('id, status, error_message')
       .eq('id', documentId)
       .eq('user_id', session.user.id)
       .single();
-    
-    if (error) {
-      return NextResponse.json(
-        {
-          success: false,
-          status: 'error',
-          message: 'Failed to get document status',
-          error: error.message,
-        } as DocumentIngestionResponse,
-        { status: 500 }
-      );
+      
+    if (error || !data) {
+       return NextResponse.json({ success: false, status: 'error', message: 'Document not found or query failed' } as any, { status: error ? 500 : 404 });
     }
     
-    if (!data) {
-      return NextResponse.json(
-        {
-          success: false,
-          status: 'error',
-          message: 'Document not found or access denied',
-          error: 'Not Found',
-        } as DocumentIngestionResponse,
-        { status: 404 }
-      );
-    }
-    
-    // Return the document status
-    return NextResponse.json({
-      success: true,
-      documentId: data.id,
-      status: data.status,
-      message: data.status === 'error' 
-        ? `Document processing failed: ${data.error_message}`
-        : `Document status: ${data.status}`,
-      error: data.error_message,
-    } as DocumentIngestionResponse);
-  } catch (error) {
-    console.error('Document status check error:', error);
-    
-    return NextResponse.json(
-      {
-        success: false,
-        status: 'error',
-        message: 'Failed to check document status',
-        error: (error as Error).message,
-      } as DocumentIngestionResponse,
-      { status: 500 }
-    );
-  }
+    return NextResponse.json({ success: true, documentId: data.id, status: data.status, message: `Status: ${data.status}`, error: data.error_message } as any);
 } 

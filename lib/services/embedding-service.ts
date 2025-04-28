@@ -6,12 +6,15 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { GoogleGenerativeAI, TaskType } from '@google/generative-ai'; // Import SDK
 import { ChunkWithEmbedding, DocumentChunk, DocumentEmbedding, EmbeddingModel } from '../types/document';
 import { Database } from '../types/database.types';
+import { getApiKey } from '@/lib/credentials'; // Import credential helper
 
 // Supabase client configuration
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
+// const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string; // Don't use anon key here
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string; // Use service role key
 
 const MAX_BATCH_SIZE = 20; // Maximum number of chunks to process in a single batch
 const RATE_LIMIT_DELAY = 1000; // Delay between API calls in milliseconds
@@ -55,6 +58,7 @@ const DEFAULT_EMBEDDING_OPTIONS: EmbeddingOptions = {
 export class EmbeddingService {
   private options: EmbeddingOptions;
   private supabase;
+  private genAI: GoogleGenerativeAI | null = null; // Add Gemini client instance
 
   /**
    * Create a new EmbeddingService instance
@@ -62,7 +66,43 @@ export class EmbeddingService {
    */
   constructor(options: EmbeddingOptions = {}) {
     this.options = { ...DEFAULT_EMBEDDING_OPTIONS, ...options };
-    this.supabase = createClient(supabaseUrl, supabaseAnonKey);
+    // Use the Service Role Key for backend embedding tasks
+    if (!supabaseServiceRoleKey) {
+      console.warn('WARNING: SUPABASE_SERVICE_ROLE_KEY is not set for EmbeddingService. RLS may block embedding storage.');
+      // Optionally throw an error if it's critical
+      // throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set, cannot initialize EmbeddingService for backend use.');
+    }
+    // Initialize with Service Role Key. If it's undefined, client creation might fail later, 
+    // or operations will fail due to lack of permissions, relying on the warning above.
+    this.supabase = createClient(supabaseUrl, supabaseServiceRoleKey); 
+
+    // Initialize Gemini client
+    const geminiApiKey = getApiKey('gemini');
+    if (geminiApiKey) {
+      this.genAI = new GoogleGenerativeAI(geminiApiKey);
+    } else {
+      console.error('ERROR: Gemini API key not found. Embedding generation will fail.');
+      // Optionally throw an error
+      // throw new Error('Gemini API key not configured, cannot initialize EmbeddingService.');
+    }
+  }
+
+  /**
+   * Generate an embedding for a single text string
+   * @param text Text to generate embedding for
+   * @returns Vector embedding
+   */
+  async generateEmbeddingForText(text: string, taskType: TaskType = TaskType.RETRIEVAL_DOCUMENT): Promise<number[]> {
+    try {
+      // Use the same method as in callEmbeddingAPI but for a single string
+      return await this.callEmbeddingAPI(text, taskType);
+    } catch (error) {
+      throw new EmbeddingError(
+        `Failed to generate embedding for text: ${(error as Error).message}`,
+        undefined,
+        error as Error
+      );
+    }
   }
 
   /**
@@ -159,33 +199,50 @@ export class EmbeddingService {
    * @param text Text to generate embedding for
    * @returns Vector embedding
    */
-  private async callEmbeddingAPI(text: string, retryCount = 0): Promise<number[]> {
-    try {
-      // TODO: Replace with actual Gemini API call to generate embeddings
-      // This is a placeholder that returns a random embedding vector
-      // In production, this would call the Gemini API
+  private async callEmbeddingAPI(text: string, taskType: TaskType = TaskType.RETRIEVAL_DOCUMENT, retryCount = 0): Promise<number[]> {
+    if (!this.genAI) {
+      throw new EmbeddingError("Gemini client not initialized due to missing API key.");
+    }
 
-      // Simulate API call
-      await this.delay(200);
-      
-      // For development testing, generate a pseudo-random vector
-      // In production, this would be replaced with the actual API call
+    // Clean the input text (remove excessive newlines, etc.)
+    const cleanedText = text.replace(/\n{2,}/g, '\n').trim();
+    if (!cleanedText) {
+      console.warn("[EmbeddingService] Attempted to embed empty or whitespace-only text. Returning zero vector.");
+      // Return a zero vector of the correct dimension
       const dimension = this.getModelDimension(this.options.model as EmbeddingModel);
-      const embedding = Array.from({ length: dimension }, () => Math.random() * 2 - 1);
+      return Array(dimension).fill(0);
+    }
+
+    try {
+      // Use Gemini API for embeddings
+      const model = this.genAI.getGenerativeModel({ model: "text-embedding-004" });
       
-      // Normalize the vector to unit length
-      const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
-      return embedding.map(val => val / magnitude);
-    } catch (error) {
+      const result = await model.embedContent({
+        content: { role: "user", parts: [{ text: cleanedText }] },
+        taskType: taskType,
+      });
+
+      const embedding = result.embedding;
+      if (!embedding || !embedding.values) {
+        throw new Error("Gemini API returned no embedding values.");
+      }
+      
+      // Debug log for dimension check
+      // console.log(`[EmbeddingService] Generated embedding dimension: ${embedding.values.length}`);
+
+      return embedding.values;
+
+    } catch (error: any) {
+      console.error(`[EmbeddingService] Gemini API error (attempt ${retryCount + 1}/${MAX_RETRIES + 1}):`, error);
       if (retryCount < MAX_RETRIES) {
-        // Exponential backoff
-        const delay = Math.pow(2, retryCount) * 1000;
+        const delay = Math.pow(2, retryCount) * 1500; // Increase base delay slightly
+        console.log(`[EmbeddingService] Retrying embedding generation in ${delay}ms...`);
         await this.delay(delay);
-        return this.callEmbeddingAPI(text, retryCount + 1);
+        return this.callEmbeddingAPI(cleanedText, taskType, retryCount + 1);
       }
       
       throw new EmbeddingError(
-        `Failed to generate embedding after ${MAX_RETRIES} retries: ${(error as Error).message}`,
+        `Failed to generate embedding after ${MAX_RETRIES + 1} attempts: ${error.message || 'Unknown Gemini API error'}`,
         undefined,
         error as Error
       );

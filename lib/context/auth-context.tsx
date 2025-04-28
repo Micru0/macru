@@ -2,10 +2,11 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User, Session, SupabaseClient } from '@supabase/supabase-js';
-import { createSupabaseClient } from '../supabase';
+import { createBrowserClient } from '@supabase/ssr';
 import { AuthService } from '../services/auth-service';
 import { useRouter } from 'next/navigation';
 import { showError } from '../utils/toast';
+import { Database } from '@/lib/types/database.types';
 
 interface AuthContextType {
   user: User | null;
@@ -20,7 +21,12 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [supabase] = useState(() => createSupabaseClient());
+  const [supabase] = useState(() => 
+    createBrowserClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+  );
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);

@@ -5,7 +5,6 @@
  * It provides a unified interface for text extraction with appropriate error handling.
  */
 
-import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import { createHash } from 'crypto';
 
@@ -93,7 +92,17 @@ export abstract class BaseExtractor {
 export class PdfExtractor extends BaseExtractor {
   async extract(buffer: Buffer, filename: string): Promise<ExtractionResult> {
     try {
-      const data = await pdfParse(buffer);
+      // Dynamically import pdf-parse
+      const pdfParse = (await import('pdf-parse')).default;
+
+      // DEBUG: Log buffer details before calling pdf-parse
+      console.log(`[PdfExtractor] Attempting to parse PDF: ${filename}. Buffer length: ${buffer.length}`);
+      if (!Buffer.isBuffer(buffer)) {
+        console.error('[PdfExtractor] Error: Input is not a Node.js Buffer!');
+        throw new Error('Invalid input type for PDF parsing.');
+      }
+
+      const data = await pdfParse(buffer); // Ensure buffer is passed correctly
       const cleanedText = this.cleanText(data.text);
       
       return {
@@ -110,6 +119,7 @@ export class PdfExtractor extends BaseExtractor {
         }
       };
     } catch (error) {
+      console.error(`[PdfExtractor] pdf-parse error for ${filename}:`, error);
       throw new ExtractionError(
         `Failed to extract text from PDF: ${(error as Error).message}`,
         'pdf',
