@@ -10,9 +10,9 @@ import { EmbeddingService } from './embedding-service';
 import { Database } from '../types/database.types';
 import { ChunkWithEmbedding, DocumentChunk } from '../types/document';
 
-// Supabase client configuration
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
+// Use non-prefixed variables for server-side initialization
+const supabaseUrl = process.env.SUPABASE_URL as string;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY as string;
 
 /**
  * Error type for vector search errors
@@ -81,6 +81,10 @@ export class VectorSearchService {
    * Create a new VectorSearchService instance
    */
   constructor() {
+    // Ensure variables are present
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('Missing Supabase URL or Anon Key for VectorSearchService');
+    }
     this.supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
     this.embeddingService = new EmbeddingService();
   }
@@ -102,7 +106,7 @@ export class VectorSearchService {
       // Call the match_documents function
       const { data, error } = await this.supabase
         .rpc('match_documents', {
-          query_embedding: queryEmbedding,
+          query_embedding: JSON.stringify(queryEmbedding),
           match_threshold: threshold,
           match_count: limit
         });
