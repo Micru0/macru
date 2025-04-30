@@ -64,7 +64,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="container mx-auto py-6 h-[calc(100vh-4rem)] flex flex-col">
+    <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8 h-[calc(100vh-4rem)] flex flex-col">
       <div className="mb-6">
         <h1 className="text-3xl font-bold">Dashboard</h1>
         <p className="text-muted-foreground">
@@ -72,7 +72,7 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      <Card className="flex-1 overflow-hidden flex flex-col">
+      <Card className="flex-1 overflow-hidden flex flex-col p-6">
         <ChatInterface
           onSubmitQuery={handleSubmitQuery}
           messages={messages}

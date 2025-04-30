@@ -24,7 +24,7 @@ async function ProfileContent() {
   const profile: Profile = await getUserProfile(supabase);
   
   return (
-    <div className="container py-6 space-y-8">
+    <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8 space-y-8">
       <div>
         <h1 className="text-2xl font-bold mb-6">Your Profile</h1>
         <ProfileForm initialData={profile} />
@@ -38,7 +38,7 @@ async function ProfileContent() {
 
 export default function ProfilePage() {
   return (
-    <Suspense fallback={<div className="py-6 container">Loading profile...</div>}>
+    <Suspense fallback={<div className="py-8 container mx-auto px-4 md:px-6 lg:px-8">Loading profile...</div>}>
       <ProfileContent />
     </Suspense>
   );

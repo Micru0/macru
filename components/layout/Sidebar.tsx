@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Menu, X, Home, User, Settings, ChevronRight } from 'lucide-react';
+import { Menu, X, Home, User, Settings, ChevronRight, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import UserDropdown from './UserDropdown';
 import { useAuth } from '@/lib/context/auth-context';
@@ -23,7 +23,8 @@ export default function Sidebar() {
   const navItems: NavItem[] = [
     { href: '/dashboard', label: 'Dashboard', icon: Home },
     { href: '/dashboard/profile', label: 'Profile', icon: User },
-    { href: '/dashboard/settings', label: 'Settings', icon: Settings }
+    { href: '/dashboard/settings', label: 'Settings', icon: Settings },
+    { href: '/dashboard/files', label: 'Files', icon: FileText }
   ];
   
   const toggleSidebar = () => setIsOpen(!isOpen);

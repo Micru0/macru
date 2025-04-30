@@ -127,6 +127,11 @@ export class DocumentProcessor {
     
     // --- Create Document Record FIRST --- 
     console.log(`[DocumentProcessor] Creating document record for: ${fileName}`);
+    
+    // Extract timestamps from metadata if they exist
+    const sourceCreatedAt = metadata?.createdTime ? new Date(metadata.createdTime).toISOString() : null;
+    const sourceUpdatedAt = metadata?.lastEditedTime ? new Date(metadata.lastEditedTime).toISOString() : null;
+    
     const insertResult = await this.supabase
       .from('documents')
       .insert({
@@ -137,10 +142,12 @@ export class DocumentProcessor {
         status: 'processing' as DocumentStatus,
         source_type: sourceType, // Store source type
         source_id: sourceId, // Store external source ID
+        source_created_at: sourceCreatedAt,
+        source_updated_at: sourceUpdatedAt,
         metadata: {
           originalFileId: fileId, // Store original file ID if applicable
           processingStarted: new Date().toISOString(),
-          ...(metadata || {}) // Merge provided metadata
+          ...(metadata || {}) // Merge provided metadata (includes original timestamps too)
         },
       })
       .select()

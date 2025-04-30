@@ -132,18 +132,13 @@ export class NotionConnector implements DataConnector {
   readonly type = ConnectorType.NOTION;
   private notionClient: Client | null = null;
 
-  // Helper to create client-side Supabase instance for class methods if needed
-  // TODO: Review if class methods should accept userId/token or SupabaseClient instance
-  private getSupabaseClientInstance() {
-      return createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
-  }
-
-  private async initializeClient(userId: string): Promise<Client | null> {
-    const supabase = this.getSupabaseClientInstance(); // Use internal helper for now
-    const tokenData = await getNotionToken(supabase, userId); // Pass client instance
+  // Modify initializeClient to accept SupabaseClient
+  private async initializeClient(userId: string, supabase: SupabaseClient): Promise<Client | null> {
+    const tokenData = await getNotionToken(supabase, userId); 
+    
+    // Add log to inspect the fetched token data object
+    console.log('[NotionConnector Initialize] Fetched tokenData:', JSON.stringify(tokenData)); 
+    
     const accessToken = decryptToken(tokenData?.access_token ?? null);
     
     if (!accessToken) {
@@ -169,7 +164,10 @@ export class NotionConnector implements DataConnector {
 
   async disconnect(userId: string): Promise<ConnectionStatus> {
     console.log(`[NotionConnector] Disconnecting for user ${userId}`);
-    const supabase = this.getSupabaseClientInstance(); // Use internal helper for now
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    ); // Use internal helper for now
     const success = await deleteNotionToken(supabase, userId); // Pass client instance
     if (!success) {
       console.error('[NotionConnector] Failed to delete token from database.');
@@ -183,7 +181,10 @@ export class NotionConnector implements DataConnector {
   }
 
   async getConnectionStatus(userId: string, supabaseClient?: SupabaseClient): Promise<ConnectionStatus> {
-    const supabase = supabaseClient || this.getSupabaseClientInstance(); 
+    const supabase = supabaseClient || createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    ); 
     console.log(`[NotionConnector] getConnectionStatus called for user ${userId}. Using ${supabaseClient ? 'provided (server?)' : 'internal (browser?)'} Supabase client.`);
 
     const tokenData = await getNotionToken(supabase, userId); 
@@ -221,9 +222,11 @@ export class NotionConnector implements DataConnector {
     };
   }
 
-  async fetchData(userId: string, lastSyncTime?: Date): Promise<ConnectorData[]> {
+  // Modify fetchData to accept SupabaseClient
+  async fetchData(userId: string, supabase: SupabaseClient, lastSyncTime?: Date): Promise<ConnectorData[]> {
     console.log(`[NotionConnector] Fetching data for user ${userId}, last sync: ${lastSyncTime}`);
-    const client = await this.initializeClient(userId);
+    // Pass the provided Supabase client to initializeClient
+    const client = await this.initializeClient(userId, supabase);
     if (!client) {
       throw new Error('Notion client not initialized. User might not be connected or token is invalid.');
     }
@@ -258,18 +261,32 @@ export class NotionConnector implements DataConnector {
             // Fetch actual page content
             const pageContent = await this.fetchPageContent(client, page.id);
             
+            // --- Enhance Metadata --- 
+            let pageMetadata: Record<string, any> = {
+              notionPageId: page.id,
+              lastEditedTime: page.last_edited_time,
+              createdTime: page.created_time,
+              url: page.url, // Add Notion page URL
+              title: title
+            };
+            
+            // Extract parent information
+            if (page.parent) {
+              pageMetadata.parentType = page.parent.type;
+              if (page.parent.type === 'page_id') {
+                pageMetadata.parentId = page.parent.page_id;
+              } else if (page.parent.type === 'database_id') {
+                pageMetadata.parentId = page.parent.database_id;
+              } // 'workspace' type has no specific ID to store here
+            }
+            // --- End Enhance Metadata ---
+            
             fetchedData.push({
               id: page.id,
               type: 'page',
               title: title,
               content: pageContent, // Use fetched content
-              metadata: {
-                url: page.url,
-                created_time: page.created_time,
-                last_edited_time: page.last_edited_time,
-                icon: page.icon,
-                // Add parent info if needed: page.parent \n              },
-              },
+              metadata: pageMetadata, // Pass the enhanced metadata
               source: this.type,
               lastModified: new Date(page.last_edited_time),
             });
@@ -369,6 +386,8 @@ export class NotionConnector implements DataConnector {
            blockText = `> ${block.callout.icon?.type === 'emoji' ? block.callout.icon.emoji + ' ' : ''}${block.callout.rich_text.map(rt => rt.plain_text).join('')}`;
         } else if (type === 'divider') {
           blockText = '---';
+        } else if (type === 'child_page') { // <-- Handle child page block -->
+          blockText = `[Child Page: ${block.child_page.title || 'Untitled'}]`;
         } 
         // Add more simple block types here if needed
         // Skipping complex types for now

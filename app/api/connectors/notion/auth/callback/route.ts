@@ -123,6 +123,38 @@ export async function GET(request: NextRequest) {
     }
 
     console.log('[Notion Auth Callback] Token saved successfully.');
+
+    // --- Trigger Immediate Sync (Fire and Forget) --- 
+    const internalApiKey = process.env.INTERNAL_API_SECRET;
+    const syncApiUrl = `${process.env.APP_URL}/api/sync/notion`; // Construct API URL
+    
+    if (internalApiKey && syncApiUrl && process.env.APP_URL) {
+        console.log(`[Notion Auth Callback] Triggering immediate sync for user ${userId}...`);
+        fetch(syncApiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${internalApiKey}`,
+                'X-Sync-User-ID': userId,
+                'X-Sync-Provider': 'notion' // Consistent with Edge Function call
+            },
+            // No body needed for this trigger
+        }).then(async (syncRes) => {
+            if (!syncRes.ok) {
+                const errorBody = await syncRes.text();
+                console.error(`[Notion Auth Callback] Immediate sync trigger failed with status ${syncRes.status}: ${errorBody}`);
+            } else {
+                console.log(`[Notion Auth Callback] Immediate sync trigger successful for user ${userId}.`);
+            }
+        }).catch(syncError => {
+            console.error(`[Notion Auth Callback] Error triggering immediate sync fetch:`, syncError);
+        });
+        // We don't await this fetch - let it run in the background
+    } else {
+        console.warn('[Notion Auth Callback] Cannot trigger immediate sync: Missing INTERNAL_API_SECRET or APP_URL.');
+    }
+    // --- End Trigger Immediate Sync ---
+
     // --- Redirect User --- 
     // Redirect back to the settings or connections page with success
     return NextResponse.redirect(new URL('/dashboard/settings?success=notion_connected', request.url));

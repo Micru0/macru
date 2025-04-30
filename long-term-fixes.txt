@@ -44,4 +44,16 @@ This file tracks ideas for future enhancements and fixes beyond the initial scop
 8.  **Rate Limiter Persistence:**
     *   **Problem:** Current rate limiter is in-memory only.
     *   **Solution:** Replace `lru-cache` implementation with a persistent solution like Redis (e.g., using `@upstash/ratelimit`) for production.
-    *   **Affected Files:** `lib/utils/rate-limiter.ts`. 
+    *   **Affected Files:** `lib/utils/rate-limiter.ts`.
+
+9.  **Production Environment Variable Configuration:**
+    *   **Problem:** Environment variables set for local development (e.g., in `.env.local`) need to be correctly configured for the production deployment.
+    *   **Action:** Before/during deployment, ensure all necessary environment variables are set in the hosting provider's settings (e.g., Vercel, Netlify).
+    *   **Key Variables to Check:**
+        *   `APP_URL`: Must be updated from `http://localhost:3000` to the actual production URL (e.g., `https://your-app.com`).
+        *   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+        *   `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`
+        *   `INTERNAL_API_SECRET` (must match the one set for Edge Function secrets)
+        *   All connector secrets (`NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`, `NOTION_REDIRECT_URI`, etc. for Notion and future integrations like Gmail, Linear).
+        *   LLM API Keys (`GOOGLE_API_KEY`, `GEMINI_API_KEY`, etc.)
+        *   `NODE_ENV`: Should likely be set to `production`. 

@@ -73,20 +73,26 @@ export function ChatMessage({
                   ul: ({ children }) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
                   ol: ({ children }) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
                   li: ({ children }) => <li className="mb-1">{children}</li>,
+                  // Handle code blocks: apply styling to pre for blocks, code for inline
+                  pre: ({ children, ...props }) => (
+                    <pre className="bg-muted p-2 rounded-md overflow-x-auto text-sm font-mono my-2" {...props}>
+                      {children}
+                    </pre>
+                  ),
                   // @ts-ignore - inline is provided by react-markdown
                   code: ({ node, inline, className, children, ...props }) => {
                     if (inline) {
+                      // Style inline code differently
                       return <code className="bg-muted px-1 py-0.5 rounded text-sm font-mono" {...props}>{children}</code>;
                     }
-                    // For block code, wrap the code in a div instead of pre to avoid nesting issue
-                    // Apply styling similar to pre for consistency
+                    // For code within pre (block code), don't add extra styling here, 
+                    // rely on the parent pre handler above.
+                    // Pass className for syntax highlighting if applicable.
                     const match = /language-(\w+)/.exec(className || '');
                     return (
-                      <div className="bg-muted p-2 rounded-md overflow-x-auto text-sm font-mono my-2">
                         <code className={className} {...props}>
                           {children}
                         </code>
-                      </div>
                     );
                   }
                 }}

@@ -95,8 +95,15 @@ export async function POST(request: Request) {
     const embedStartTime = performance.now();
     let queryEmbedding: number[];
     try {
-      queryEmbedding = await embeddingService.generateEmbeddingForText(query, TaskType.RETRIEVAL_QUERY);
+      // --- REVERTED HARDCODING ---
+      // console.log("[API Route] USING HARDCODED EMBEDDING FOR TESTING!");
+      // queryEmbedding = [...]; // Removed hardcoded vector
+      
+      // --- Generate query embedding using RETRIEVAL_DOCUMENT task type ---
+      console.log("[API Route] Generating query embedding using RETRIEVAL_DOCUMENT task type...");
+      queryEmbedding = await embeddingService.generateEmbeddingForText(query, TaskType.RETRIEVAL_DOCUMENT); // Changed TaskType
       embeddingTime = performance.now() - embedStartTime;
+      console.log(`[API Route] Generated query embedding (first 5 dims): [${queryEmbedding.slice(0, 5).join(', ')}, ...] (Total Dims: ${queryEmbedding.length})`);
     } catch (embeddingError) {
       console.error("[API Route] Error generating query embedding:", embeddingError);
       throw new Error("Failed to generate query embedding."); // Rethrow to be caught by main handler
@@ -109,12 +116,24 @@ export async function POST(request: Request) {
     let retrievedChunks: SourceChunk[] = []; // Define with correct type
     const searchStartTime = performance.now();
     try {
+      // Ensure userId is available before calling the RPC
+      if (!userId) {
+        console.warn("[API Route] Cannot call match_documents without a user ID.");
+        // Handle this case appropriately, maybe return empty chunks or throw error?
+        // For now, let's proceed but expect no user-specific results.
+        // If your RLS requires user_id, this call will fail anyway without it.
+      } else {
+        console.log(`[API Route] Calling match_documents for user: ${userId}`);
+      }
+
       const { data: matchData, error: matchError } = await supabaseAdmin.rpc(
         'match_documents', 
         {
-          query_embedding: queryEmbedding,
-          match_threshold: 0.6, // Lower threshold for testing
-          match_count: 5,        
+          query_embedding: queryEmbedding, 
+          match_threshold: 0.4, // Lowered threshold for testing
+          match_count: 5,       
+          filter_user_id: userId, // Added user ID filter
+          filter_source_types: ['notion'] // Added source type filter
         }
       );
 
@@ -160,10 +179,45 @@ export async function POST(request: Request) {
     memoryTime = performance.now() - memoryStartTime;
     // --- End Get Relevant Memories ---
 
+    // --- Filter Chunks if Query Targets Specific Document --- 
+    let finalChunks = retrievedChunks;
+    const specificDocQueryMatch = query.match(/^\s*(?:what is|what are|tell me about|summarize)\s+(?:the\s+)?(?:contents? of|document|page|file)\s*(?:called|named)?\s*['"“](.*?)['"”]/i);
+    const specificTitle = specificDocQueryMatch?.[1]; // Extract title from query if match
+    
+    if (specificTitle) {
+      console.log(`[API Route] Query seems to target specific document: "${specificTitle}"`);
+      const filteredChunks = retrievedChunks.filter(chunk => 
+        chunk.documentName?.toLowerCase() === specificTitle.toLowerCase()
+      );
+      
+      if (filteredChunks.length > 0) {
+        console.log(`[API Route] Filtering context to ${filteredChunks.length} chunks from document "${specificTitle}".`);
+        finalChunks = filteredChunks; // Use only the filtered chunks
+      } else {
+        console.log(`[API Route] Specific document "${specificTitle}" mentioned, but no matching chunks found in retrieved set. Using all retrieved chunks.`);
+        // Keep finalChunks as the original retrievedChunks
+      }
+    } else {
+      console.log("[API Route] Query seems general. Using all retrieved chunks for context.");
+      // Keep finalChunks as the original retrievedChunks
+    }
+    // --- End Filtering Chunks --- 
+
     // --- 3. Assemble Contexts --- 
-    const documentContext = retrievedChunks
-      .map(chunk => chunk.content)
-      .join("\n\n---\n\n");
+    // Include metadata with chunk content
+    const documentContext = finalChunks
+      .map(chunk => {
+          // Basic formatting for metadata
+          let metadataString = `Source Document: ${chunk.documentName} (ID: ${chunk.documentId}, Chunk: ${chunk.chunkIndex})`;
+          if (chunk.metadata) {
+              if (chunk.metadata.url) metadataString += `\nURL: ${chunk.metadata.url}`;
+              if (chunk.metadata.parentType) metadataString += `\nParent Type: ${chunk.metadata.parentType}`;
+              if (chunk.metadata.parentId) metadataString += `\nParent ID: ${chunk.metadata.parentId}`;
+              // Add other relevant metadata fields if needed
+          }
+          return `--- Chunk Start ---\n[Metadata]\n${metadataString}\n\n[Content]\n${chunk.content}\n--- Chunk End ---`;
+      })
+      .join("\n\n"); // Separate chunks clearly
       
     const memoryContext = retrievedMemories
       .map(mem => `[Memory: ${mem.type} - ${new Date(mem.created_at).toLocaleDateString()}] ${mem.content}`)
@@ -234,7 +288,7 @@ export async function POST(request: Request) {
     const responseProcessor = new ResponseProcessor();
     const processedResponse: ProcessedResponse = responseProcessor.processResponse(
       llmResponse.text, // Pass the raw LLM text
-      retrievedChunks
+      finalChunks // Use the potentially filtered chunks for citation
     );
     processingTime = performance.now() - processingStartTime;
 
@@ -275,18 +329,25 @@ function formatPromptWithHistoryAndContext(
     : '';
 
   const docContextSection = documentContext.trim().length > 0
-    ? `Relevant Document Context:\n---\n${documentContext}\n---\n\n`
+    ? `## Relevant Document Context:\n${documentContext}\n\n` // Use Markdown heading
     : '';
 
   const memContextSection = memoryContext.trim().length > 0
-    ? `Relevant Personal Memory Context:\n---\n${memoryContext}\n---\n`
+    ? `## Relevant Personal Memory Context:\n${memoryContext}\n\n` // Use Markdown heading
     : '';
 
-  // Instruct the LLM to use the context AND available tools for actions
+  // More general but clear instructions
   return (
-    `You are a helpful assistant. Use the provided context (documents, memory) to answer the user's query accurately. `
-    + `If the user asks you to perform an action (like scheduling, creating something), use the available tools/functions to fulfill the request. `
-    + `Do not make up information if it's not in the context.\n\n`
+    `You are a helpful and professional assistant. Respond concisely using clear Markdown formatting. `
+    + `Use the provided context (documents with metadata, memory) to answer the user's query accurately. `
+    + `If the query seems to refer to a specific document or topic within the context (e.g., a Notion page), structure your response logically: `
+    + `  - Start with a clear heading for the main topic (e.g., using '**Title**' or '### Title'). `
+    + `  - Summarize the key information from the context related to that topic. `
+    + `  - If the context indicates a hierarchy (like child pages in Notion, identified by '[Child Page: ...]' markers or metadata), represent this clearly, perhaps using nested bullet points or subheadings for children. Summarize child content briefly. `
+    + `  - Example for Hierarchy: \n    **Parent Page Title**\n    [Summary of parent content]...\n    *   **Child Page 1 Title**: [Brief summary]...\n    *   **Child Page 2 Title**: [Brief summary]...\n` // Provide a clearer example
+    + `For general questions, synthesize information from all relevant context sources professionally. `
+    + `ALWAYS cite the source document name(s) or memory type when appropriate, but DO NOT include internal IDs or raw chunk indices. `
+    + `If the context does not contain the answer, state that clearly. Do not invent information. \n\n`
     + `${formattedHistory}${memContextSection}${docContextSection}`
     + `User: ${query}\n\n`
     + `Assistant:`

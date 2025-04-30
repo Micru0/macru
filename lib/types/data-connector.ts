@@ -1,3 +1,5 @@
+import { SupabaseClient } from '@supabase/supabase-js';
+
 // Define the structure and methods required for all data connectors
 
 export enum ConnectorType {
@@ -56,7 +58,7 @@ export interface DataConnector {
 
   // Fetches new or updated data since the last sync
   // Should ideally support incremental fetching
-  fetchData(userId: string, lastSyncTime?: Date): Promise<ConnectorData[]>;
+  fetchData(userId: string, supabase: SupabaseClient, lastSyncTime?: Date): Promise<ConnectorData[]>;
 
   // Optional: Transforms fetched data into a standardized format if needed before ingestion
   // If not provided, the ingestion pipeline assumes fetchData returns compatible data

@@ -135,10 +135,7 @@ export function ChatInterface({
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <h2 className="text-2xl font-bold">Welcome to MACRU</h2>
-            <p className="text-muted-foreground mt-2 max-w-md">
-              Ask me anything about your documents and uploaded files. I'll use them to provide personalized answers.
-            </p>
+            <h2 className="text-4xl font-bold text-muted-foreground animate-pulse">MACRU</h2>
           </div>
         ) : (
           messages.map((message) => {
@@ -185,9 +182,9 @@ export function ChatInterface({
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="p-4 border-t">
+      <div className="border-t">
         {messages.length > 0 && onClearChat && (
-          <div className="flex justify-center mb-4">
+          <div className="flex justify-center pt-4 mb-4">
             <Button
               variant="outline" 
               size="sm"

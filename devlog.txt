@@ -37,7 +37,7 @@ Each entry follows this format:
 
 ## Entries
 
-### [2025-04-30] Query Management System Implementation
+### [2025-04-27] Query Management System Implementation
 - **Files Affected**:
   - `lib/services/query-service.ts` (new)
   - `lib/services/query-service-server.ts` (new)
@@ -75,7 +75,7 @@ Each entry follows this format:
   - Support bulk query operations (delete, export)
   - Implement advanced search with filtering options
 
-### [2025-04-29] Authentication Flow and Component Fixes
+### [2025-04-26] Authentication Flow and Component Fixes
 - **Files Affected**:
   - `lib/supabase.ts` (refactored)
   - `lib/services/auth-service.ts` (updated, logs removed)
@@ -111,7 +111,7 @@ Each entry follows this format:
   - Thoroughly test all authenticated routes (/dashboard, /profile, /settings, /files).
   - Restore full functionality to the dashboard page (ChatInterface, etc.) if it was simplified during debugging (Note: Already restored). 
 
-### [2025-04-28] Authentication Email Verification Fix
+### [2025-04-25] Authentication Email Verification Fix
 - **Files Affected**:
   - `app/components/auth/SignupForm.tsx` (updated)
   - `lib/services/auth-service.ts` (updated)
@@ -139,7 +139,7 @@ Each entry follows this format:
   - Add multi-factor authentication
   - Create a more comprehensive onboarding flow after email verification 
 
-### [2025-04-27] Query Interface and Response Display Implementation
+### [2025-04-24] Query Interface and Response Display Implementation
 - **Files Affected**:
   - `components/ui/query-box.tsx` (new)
   - `components/ui/textarea.tsx` (new)
@@ -183,7 +183,7 @@ Each entry follows this format:
   - Add keyboard shortcuts for common actions
   - Consider adding message editing and deletion capabilities 
 
-### [2025-04-26] LLM Selector UI and User Preferences Implementation
+### [2025-04-23] LLM Selector UI and User Preferences Implementation
 - **Files Affected**:
   - `lib/services/user-preferences.ts` (new)
   - `components/ui/LLMSelector.tsx` (new)
@@ -222,7 +222,7 @@ Each entry follows this format:
   - Create API key management UI in the settings page
   - Add visual indicators for cost and performance tradeoffs
 
-### [2025-04-25] Codebase Cleanup
+### [2025-04-22] Codebase Cleanup
 - **Files Affected**:
   - `lib/llmRouter.ts` (updated)
   - `app/llm-test/page.tsx` (updated)
@@ -248,7 +248,7 @@ Each entry follows this format:
 - **Future Considerations**: 
   - Streaming functionality could be revisited and re-implemented if deemed necessary for UX after core features are stable. 
 
-### [2025-04-24] LLM Router Implementation
+### [2025-04-21] LLM Router Implementation
 - **Files Affected**:
   - `lib/llmRouter.ts` (updated)
   - `lib/credentials.ts` (new)
@@ -272,7 +272,7 @@ Each entry follows this format:
   - The abstraction layer allows for easy addition of other providers in the future
   - API keys are handled securely via environment variables
 
-### [2025-04-19] Document Processing Pipeline Implementation
+### [2025-04-16] Document Processing Pipeline Implementation
 - **Files Affected**:
   - `lib/services/text-extractor.ts` (new)
   - `lib/services/document-chunker.ts` (new)
@@ -314,7 +314,7 @@ Each entry follows this format:
   - Consider adding document preprocessing options (cleaning, formatting)
   - Implement batch processing for multiple documents 
 
-### [2025-04-12] Document Processing Database Schema Setup
+### [2025-04-09] Document Processing Database Schema Setup
 - **Files Affected**:
   - `scripts/migrations/create_document_processing_tables.sql` (new)
   - `lib/types/document.ts` (new)
@@ -342,7 +342,7 @@ Each entry follows this format:
   - Potentially add versioning support for document revisions
   - Evaluate embedding model dimensions and adjust vector size accordingly 
 
-### [2025-04-10] Client Component Fixes and File Upload Testing
+### [2025-04-07] Client Component Fixes and File Upload Testing
 - **Files Affected**:
   - `app/components/auth/SignupForm.tsx` (updated)
   - `app/components/auth/ResetPasswordForm.tsx` (updated)
@@ -369,7 +369,7 @@ Each entry follows this format:
   - Implement comprehensive test suite for upload components
   - Consider adding mock services for other components to facilitate testing 
 
-### [2025-04-09] File Management System Completion
+### [2025-04-06] File Management System Completion
 - **Files Affected**:
   - `components/ui/file-list.tsx` (new)
   - `components/ui/file-management.tsx` (new)
@@ -397,7 +397,7 @@ Each entry follows this format:
   - Support for folder organization and hierarchical structure
   - Implement file tagging and advanced search capabilities 
 
-### [2025-04-07] Enhanced File Management System
+### [2025-04-04] Enhanced File Management System
 - **Files Affected**:
   - `lib/types/file.ts` (new)
   - `lib/types/database.types.ts` (updated)
@@ -436,7 +436,7 @@ Each entry follows this format:
   - Add integration with cloud services
   - Create a file browser UI component 
 
-### [2025-04-01] File Upload System Implementation
+### [2025-03-29] File Upload System Implementation
 - **Files Affected**:
   - `components/ui/Progress.tsx`
   - `components/ui/FileUpload.tsx`
@@ -464,7 +464,7 @@ Each entry follows this format:
   - Add file type validation with preview support
   - Support for larger files with resumable uploads 
 
-### [2025-03-31] User Profile Management and Navigation
+### [2025-03-28] User Profile Management and Navigation
 - **Files Affected**: 
   - `lib/services/user-service.ts`
   - `lib/types/database.types.ts`
@@ -499,7 +499,7 @@ Each entry follows this format:
   - Add additional user preferences
   - Create more comprehensive user profile fields 
 
-### [2025-03-30] Authentication System Implementation
+### [2025-03-27] Authentication System Implementation
 - **Files Affected**: 
   - `lib/context/auth-context.tsx`
   - `lib/services/auth-service.ts`
@@ -534,7 +534,7 @@ Each entry follows this format:
   - Add MFA support
   - Create user profile management 
 
-### [2025-03-29] Supabase Integration Setup
+### [2025-03-26] Supabase Integration Setup
 - **Files Affected**: 
   - `lib/supabase.ts`
   - `lib/database-schema.sql`
@@ -559,7 +559,7 @@ Each entry follows this format:
   - Implement client-side authentication components
   - Set up server-side authentication middleware 
 
-### [2025-03-28] Initial Project Setup
+### [2025-03-25] Initial Project Setup
 - **Files Affected**: Various files in the project root
 - **Dependencies Added**: 
   - Next.js
@@ -576,7 +576,7 @@ Each entry follows this format:
   - Implement Supabase integration
   - Set up Mem0 for memory management 
 
-### [2025-04-27] Memory Layer Implementation (Task 7)
+### [2025-04-24] Memory Layer Implementation (Task 7)
 - **Files Affected**:
   - `lib/types/memory.ts` (new)
   - `scripts/migrations/005_create_memory_tables.sql` (new, previously unnumbered `create_memory_tables.sql`)
@@ -614,7 +614,7 @@ Each entry follows this format:
   - Add more robust error handling and reporting for document processing failures.
   - Implement caching for embeddings if not already fully utilized (`cacheEnabled` is true but might need review).
 
-### [2025-04-27] Notion Connector Setup (Task 8 - Part 1)
+### [2025-04-24] Notion Connector Setup (Task 8 - Part 1)
 - **Files Affected**:
   - `lib/types/data-connector.ts` (new)
   - `lib/connectors/notion.ts` (new)
@@ -657,7 +657,7 @@ Each entry follows this format:
   - Build UI for selecting specific Notion pages/databases to sync (connector config).
   - Implement background/manual sync triggering mechanism.
 
-### [2025-05-01] Fix Supabase API Route Authentication (`AuthSessionMissingError`)
+### [2025-04-28] Fix Supabase API Route Authentication (`AuthSessionMissingError`)
 - **Files Affected**:
   - `app/api/action/route.ts` (updated)
   - `app/api/llm/test/route.ts` (updated)
@@ -685,7 +685,7 @@ Each entry follows this format:
   - The debugging route `/api/auth-test/route.ts` can potentially be removed if no longer needed.
   - Marked Task Master subtasks 9.1, 9.2, and 9.3 as 'done'.
 
-### [2025-05-02] Action Layer Configuration & Security (Task 9.5)
+### [2025-04-29] Action Layer Configuration & Security (Task 9.5)
 - **Files Affected**:
   - `scripts/migrations/008_add_action_logs_and_config.sql` (new, updated)
   - `lib/services/action-logger.ts` (new)
@@ -722,7 +722,7 @@ Each entry follows this format:
   - Replace in-memory rate limiter with a more persistent solution (e.g., Redis via `@upstash/ratelimit`) for production environments.
   - Remove the temporary `/api/test-logger` route if no longer needed for debugging.
 
-### [2025-05-03] Auth, Memory, and LLM Action Fixes
+### [2025-04-30] Auth, Memory, and LLM Action Fixes
 - **Files Affected**:
   - `scripts/migrations/001_create_profiles_table.sql` (Trigger reapplied via Supabase UI)
   - `lib/services/memory-service-server.ts` (Updated `getRelevantMemories`)
@@ -751,3 +751,34 @@ Each entry follows this format:
   - Implement the actual Google Calendar integration (OAuth, Connector).
   - Implement the execution logic for `googleCalendar.createEvent` in `/api/action/route.ts`.
   - Implement the UI flow for confirming proposed actions.
+
+### [2025-04-30] Automatic Notion Sync & Source Timestamps
+- **Files Affected**:
+  - `supabase/functions/sync-notion-all-users/index.ts` (new)
+  - `supabase/functions/_shared/cors.ts` (new)
+  - `app/api/sync/notion/route.ts` (updated)
+  - `app/api/connectors/notion/auth/callback/route.ts` (updated)
+  - `supabase/migrations/20250430034426_add_source_timestamps_to_documents.sql` (new)
+  - `lib/services/document-processor.ts` (updated)
+  - `.env.local` (updated - added `INTERNAL_API_SECRET`, `APP_URL`)
+  - `supabase/.env` (updated - added `INTERNAL_API_SECRET`)
+- **Dependencies Added**: None
+- **Description**: Implemented automatic background synchronization for Notion data and added source timestamps to documents to enable time-based querying.
+- **Implementation Notes**:
+  - Created a Supabase Edge Function (`sync-notion-all-users`) to periodically sync Notion data for all connected users.
+  - Function fetches user credentials and triggers the existing `/api/sync/notion` endpoint via an internal, authenticated request (using `INTERNAL_API_SECRET` and `X-Sync-User-ID` headers).
+  - Modified `/api/sync/notion` to accept these internal trigger headers as an alternative authentication method to standard user sessions.
+  - Deployed the Edge Function and scheduled it to run every 6 hours using the Supabase Dashboard Cron UI (which utilizes `pg_net` internally).
+  - Troubleshot Supabase CLI usage, discovering it was installed locally (`npx supabase ...`) and required Docker Desktop to be running for function deployment.
+  - Fixed `AuthSessionMissingError` / linking issues by using the correct database password and ensuring the project was linked (`npx supabase link`).
+  - Added `source_created_at` and `source_updated_at` columns (`TIMESTAMPTZ`) to the `documents` table via migration `20250430034426`.
+  - Updated `DocumentProcessor` service to extract `createdTime` and `lastEditedTime` from connector metadata and save them to the new database columns.
+  - Fixed the immediate sync trigger in the Notion callback route (`/api/connectors/notion/auth/callback`) by using the correct server-side `APP_URL` environment variable instead of `NEXT_PUBLIC_APP_URL`.
+- **Potential Impacts**:
+  - Notion data for connected users will now sync automatically in the background.
+  - New Notion documents should appear in the app shortly after connecting or reconnecting Notion, and also periodically via the background sync.
+  - The database now stores original creation/modification times for synced documents, enabling future time-based queries.
+- **Future Considerations**:
+  - Monitor the background sync function logs for timeouts, especially with the 5000ms cron trigger limit. May need refactoring to handle large numbers of users (e.g., batch processing or queueing).
+  - Implement the database function (`match_documents` or new) and API route logic changes needed to utilize the new timestamp columns for queries like "what was added this week?".
+  - Apply similar background sync and timestamp logic to future connectors (Gmail, Linear, etc.).

@@ -18,7 +18,7 @@ export function QueryBox({
   onSubmit,
   isLoading,
   onReset,
-  placeholder = "Ask me anything about your documents...",
+  placeholder = "Ask Macru anything...",
   initialValue = "",
   disabled = false,
 }: QueryBoxProps) {
@@ -31,7 +31,7 @@ export function QueryBox({
     
     onSubmit(query.trim());
     // Keep the query text in place until a response is received
-    // setQuery("");
+    setQuery("");
     
     // Focus back to textarea after submission
     if (textareaRef.current) {
