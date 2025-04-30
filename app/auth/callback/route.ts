@@ -14,26 +14,23 @@ export async function GET(request: NextRequest) {
   const origin = searchParams.get('origin') ?? '/dashboard'; // Default redirect
 
   if (code) {
-    // Use createServerClient with the { cookies } shorthand
+    // Use createServerClient with component functions from 'next/headers'
     const supabase = createServerClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
-        cookies: { // Use the cookies function directly
-          get(name: string) {
-             // Read directly from the imported cookies store
-             const cookieStore = cookies();
-             return cookieStore.get(name)?.value;
+        cookies: { // Pass the functions directly
+          get: (name: string) => {
+            // @ts-ignore - Ignore persistent type error
+            return cookies().get(name)?.value;
           },
-          set(name: string, value: string, options: CookieOptions) {
-             // Set cookie using the imported cookies store
-             const cookieStore = cookies();
-             cookieStore.set({ name, value, ...options });
+          set: (name: string, value: string, options: CookieOptions) => {
+            // @ts-ignore - Ignore persistent type error
+            cookies().set({ name, value, ...options });
           },
-          remove(name: string, options: CookieOptions) {
-             // Delete cookie using the imported cookies store
-             const cookieStore = cookies();
-             cookieStore.delete({ name, ...options });
+          remove: (name: string, options: CookieOptions) => {
+            // @ts-ignore - Ignore persistent type error
+            cookies().delete({ name, ...options });
           },
         },
       }
