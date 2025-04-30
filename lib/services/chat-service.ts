@@ -1,7 +1,7 @@
 "use client";
 
 import { v4 as uuidv4 } from 'uuid';
-import { ChatMessage } from '@/components/ui/chat-interface';
+import { type ChatMessageType as ChatMessage } from '@/components/ui/chat-interface';
 import { Source, ProcessedResponse } from './response-processor';
 
 interface ApiResponse {
