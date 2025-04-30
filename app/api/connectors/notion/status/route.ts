@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
         try {
             console.log('[API Notion Status] Attempting to validate token with Notion API (users.me)... ');
             const notionClient = new Client({ auth: accessToken });
-            await notionClient.users.me();
+            await notionClient.users.me({});
             console.log('[API Notion Status] Token validation successful.');
             isValid = true;
         } catch (error: any) {
