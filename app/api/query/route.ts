@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate response from LLM
-    const llmResponse = await llmRouter.generateText(
+    const llmResponse = await llmRouter.generate(
       fullPrompt,
       {
         temperature: options.temperature || 0.7,
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
     // Process response to ensure proper source attribution
     // For now, we'll use the raw LLM response
     // In the future, this would be processed by the ResponseProcessor
-    const response = llmResponse.text;
+    const response = llmResponse.text ?? '';
 
     // Construct sources information
     const sources = assembledContext.sources.map(source => ({
