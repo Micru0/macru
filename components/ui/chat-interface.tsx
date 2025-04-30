@@ -7,10 +7,12 @@ import { ProposedAction } from "@/components/actions/ProposedAction";
 import { ActionConfirmationDialog } from "@/components/actions/ActionConfirmationDialog";
 import { ActionStatusIndicator } from "@/components/actions/ActionStatusIndicator";
 import { Button } from "./button";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Plus, Image as ImageIcon, FileText } from "lucide-react";
 import type { ProposedActionType } from "@/lib/types/action";
 import { useToast } from "@/components/ui/use-toast";
 import { v4 as uuidv4 } from 'uuid';
+import Image from 'next/image';
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 export type ChatMessageType = {
   id: string;
@@ -135,7 +137,14 @@ export function ChatInterface({
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <h2 className="text-4xl font-bold text-muted-foreground animate-pulse">MACRU</h2>
+            <Image 
+              src="/macrulogo.png"
+              alt="MACRU Logo" 
+              width={300}
+              height={300}
+              priority 
+              className=""
+            />
           </div>
         ) : (
           messages.map((message) => {
@@ -182,7 +191,7 @@ export function ChatInterface({
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="border-t">
+      <div className="border-t relative">
         {messages.length > 0 && onClearChat && (
           <div className="flex justify-center pt-4 mb-4">
             <Button
@@ -196,11 +205,46 @@ export function ChatInterface({
             </Button>
           </div>
         )}
+        
         <QueryBox
           onSubmit={handleSubmit}
           isLoading={isLoading || waitingForResponse}
           onReset={messages.length > 0 ? onClearChat : undefined}
         />
+        
+        <div className="absolute bottom-1 left-4 z-10">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button 
+                variant="outline" 
+                size="icon" 
+                className="rounded-full h-8 w-8 bg-background border-primary shadow-sm hover:shadow transition-shadow"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent side="top" align="start" sideOffset={10} className="w-48 p-2 rounded-md">
+              <div className="flex flex-col gap-1">
+                <Button 
+                  variant="ghost" 
+                  className="w-full justify-start" 
+                  onClick={() => console.log("Image upload clicked")}
+                >
+                  <ImageIcon className="h-4 w-4 mr-2" />
+                  Image
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  className="w-full justify-start" 
+                  onClick={() => console.log("File upload clicked")}
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  Files
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
 
       <ActionConfirmationDialog

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { SendIcon, RefreshCcw } from "lucide-react";
 import { Button } from "./button";
 import { Textarea } from "./textarea";
@@ -25,6 +25,20 @@ export function QueryBox({
   const [query, setQuery] = useState(initialValue);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Auto-resize the textarea based on content
+  useEffect(() => {
+    if (textareaRef.current) {
+      // Reset height to auto to get the correct scrollHeight
+      textareaRef.current.style.height = 'auto';
+      
+      // Set the height based on scrollHeight with a maximum height
+      const scrollHeight = textareaRef.current.scrollHeight;
+      const maxHeight = 200; // Maximum height in pixels
+      
+      textareaRef.current.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
+    }
+  }, [query]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim() || isLoading || disabled) return;
@@ -36,6 +50,8 @@ export function QueryBox({
     // Focus back to textarea after submission
     if (textareaRef.current) {
       textareaRef.current.focus();
+      // Reset height after submission
+      textareaRef.current.style.height = 'auto';
     }
   };
 
@@ -54,7 +70,7 @@ export function QueryBox({
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full p-2 pb-12 pt-3">
       <form onSubmit={handleSubmit} className="relative">
         <Textarea
           ref={textareaRef}
@@ -62,10 +78,15 @@ export function QueryBox({
           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="min-h-[60px] pr-14 resize-none border rounded-lg focus:ring-2 focus:ring-offset-2 focus:ring-offset-background"
+          className="min-h-[60px] w-full border rounded-lg focus:ring-2 focus:ring-offset-2 focus:ring-offset-background pl-4 pr-14 py-3 overflow-y-auto"
           disabled={isLoading || disabled}
           rows={1}
+          style={{ 
+            resize: "none",
+            overflowY: query.split('\n').length > 3 ? 'auto' : 'hidden'
+          }}
         />
+
         <div className="absolute right-2 bottom-2 flex space-x-1">
           {onReset && (
             <Button

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import UserDropdown from './UserDropdown';
 import { useAuth } from '@/lib/context/auth-context';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import Image from 'next/image';
 
 interface NavItem {
   href: string;
@@ -48,7 +49,16 @@ export default function Sidebar() {
       `}>
         <div className="flex flex-col h-full p-4">
           <div className="flex justify-between items-center mb-8">
-            <h2 className="text-xl font-bold">MACRU</h2>
+            <Link href="/dashboard" className="flex items-center">
+              <Image 
+                src="/macrulogo.png"
+                alt="MACRU Logo"
+                width={60}
+                height={60}
+                priority
+                className="mr-2"
+              />
+            </Link>
             <div className="flex items-center space-x-2">
               <ThemeToggle />
               <Button 
