@@ -63,7 +63,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Trigger processing (async - don't wait for completion here)
     // Pass all the necessary details
-    processor.processDocument(fileId, userId, filePath, fileType || '', filename) // Pass empty string if fileType is null/undefined
+    processor.processDocument({
+      fileId: fileId,
+      userId: userId,
+      filePath: filePath,
+      fileType: fileType || '', // Pass empty string if fileType is null/undefined
+      fileName: filename, // Use filename as fileName
+      sourceType: 'file_upload' // Explicitly set sourceType
+    })
       .then(result => {
         console.log(`Successfully initiated processing for file ${fileId}. Result:`, result);
       })
