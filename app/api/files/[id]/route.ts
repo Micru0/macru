@@ -13,7 +13,7 @@ interface FileUpdateParams {
 // GET: Retrieve a specific file by ID
 export async function GET(
   request: NextRequest,
-  context: { params: { id: string } }
+  context: any
 ) {
   try {
     const fileId = context.params.id;
@@ -66,7 +66,7 @@ export async function GET(
 // DELETE: Remove a file by ID
 export async function DELETE(
   request: NextRequest,
-  context: { params: { id: string } }
+  context: any
 ) {
   try {
     const fileId = context.params.id;
@@ -147,7 +147,7 @@ export async function DELETE(
 // PATCH: Update file metadata
 export async function PATCH(
   request: NextRequest,
-  context: { params: { id: string } }
+  context: any
 ) {
   try {
     const fileId = context.params.id;
