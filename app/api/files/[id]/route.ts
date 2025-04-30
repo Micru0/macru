@@ -3,6 +3,13 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { Database } from '@/lib/types/database.types';
 
+// Define the expected context type for the route handlers
+interface RouteContext {
+  params: {
+    id: string;
+  };
+}
+
 interface FileUpdateParams {
   filename?: string;
   description?: string;
@@ -13,10 +20,10 @@ interface FileUpdateParams {
 // GET: Retrieve a specific file by ID
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: RouteContext
 ) {
   try {
-    const fileId = params.id;
+    const fileId = context.params.id;
     
     // Get user session
     const supabase = createRouteHandlerClient<Database>({ cookies });
@@ -66,10 +73,10 @@ export async function GET(
 // DELETE: Remove a file by ID
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: RouteContext
 ) {
   try {
-    const fileId = params.id;
+    const fileId = context.params.id;
     
     // Get user session
     const supabase = createRouteHandlerClient<Database>({ cookies });
@@ -147,10 +154,10 @@ export async function DELETE(
 // PATCH: Update file metadata
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: RouteContext
 ) {
   try {
-    const fileId = params.id;
+    const fileId = context.params.id;
     
     // Get user session
     const supabase = createRouteHandlerClient<Database>({ cookies });
