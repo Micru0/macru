@@ -14,7 +14,7 @@ import { ConnectionStatus, SyncStatus, ConnectorType } from '@/lib/types/data-co
 import { useAuth } from '@/lib/context/auth-context';
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
-import { ExternalLink, Link2, Unlink2 } from 'lucide-react';
+import { ExternalLink, Link2, Unlink2, RefreshCw } from 'lucide-react';
 import AuditTrailViewer from '@/components/ui/audit-trail-viewer';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast as sonnerToast } from "sonner";
@@ -46,6 +46,7 @@ export default function SettingsPage() {
   const [isLoadingNotion, setIsLoadingNotion] = useState<boolean>(true);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   const [isDisconnecting, setIsDisconnecting] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoadingProfile, setIsLoadingProfile] = useState<boolean>(true);
@@ -152,6 +153,40 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSyncNotion = async () => {
+    if (!user || !notionStatus?.isConnected) return;
+    setIsSyncing(true);
+    const syncToastId = "sync-notion";
+    sonnerToast.loading("Starting Notion sync... This may take a while.", { id: syncToastId });
+
+    try {
+      const response = await fetch('/api/sync/notion', { method: 'POST' });
+      const result = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 207 && result.errorCount > 0) {
+           sonnerToast.warning(
+            `Sync completed with ${result.errorCount} errors. Processed: ${result.processedCount}. First error: ${result.firstErrorMessage}`,
+            { id: syncToastId, duration: 10000 }
+          );
+        } else {
+           throw new Error(result.error || `Sync failed with status: ${response.status}`);
+        }
+      } else {
+        sonnerToast.success(
+          result.message || `Sync completed! Processed ${result.processedCount} items.`,
+          { id: syncToastId, duration: 5000 }
+        );
+      }
+
+    } catch (error: any) {
+      console.error('[SettingsPage] Error syncing Notion:', error);
+      sonnerToast.error(`Sync failed: ${error.message}`, { id: syncToastId });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleSaveConfirmationLevel = (level: ConfirmationLevel) => {
     if (!profile) return;
 
@@ -218,7 +253,7 @@ export default function SettingsPage() {
 
                 <Card>
                     <CardHeader>
-                      <CardTitle>Data Connections</CardTitle>
+                      <CardTitle>Integrations</CardTitle>
                       <CardDescription>Manage external data sources.</CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -235,17 +270,25 @@ export default function SettingsPage() {
                                     </p>
                                    </div>
                                 </div>
-                                {notionStatus?.isConnected ? (
-                                    <Button variant="destructive" size="sm" onClick={handleDisconnectNotion} disabled={isDisconnecting}>
-                                        <Unlink2 className="mr-2 h-4 w-4" />
-                                        {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-                                    </Button>
-                                ) : (
+                                <div className="flex items-center gap-2">
+                                  {notionStatus?.isConnected ? (
+                                    <>
+                                      <Button variant="outline" size="sm" onClick={handleSyncNotion} disabled={isSyncing || isDisconnecting}>
+                                          <RefreshCw className={`mr-2 h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                                          {isSyncing ? 'Syncing...' : 'Sync Now'}
+                                      </Button>
+                                      <Button variant="destructive" size="sm" onClick={handleDisconnectNotion} disabled={isDisconnecting || isSyncing}>
+                                          <Unlink2 className="mr-2 h-4 w-4" />
+                                          {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                                      </Button>
+                                    </>
+                                  ) : (
                                     <Button variant="outline" size="sm" onClick={handleConnectNotion} disabled={isConnecting}>
                                         <Link2 className="mr-2 h-4 w-4" />
                                         {isConnecting ? 'Redirecting...' : 'Connect'}
                                     </Button>
-                                )}
+                                  )}
+                                </div>
                             </div>
                         )}
                     </CardContent>

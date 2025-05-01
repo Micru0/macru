@@ -122,15 +122,28 @@ export async function POST(request: NextRequest) {
         const documentProcessor = new DocumentProcessor(); 
         console.log(`[API Sync Notion] Initializing DocumentProcessor for user ${userId}...`);
 
+        let updatedCount = 0; // Add counter for updates
+
         for (const item of notionData) {
             // Ensure userId is passed correctly
             const currentUserId = userId; 
             console.log(`[API Sync Notion] Processing item: ${item.title} (ID: ${item.id}, Source: ${item.source}) for user ${currentUserId}`);
             
+            // Helper function to safely format timestamps
+            const formatTimestamp = (dateInput: string | Date | null | undefined): string | null => {
+                if (!dateInput) return null;
+                try {
+                    return new Date(dateInput).toISOString();
+                } catch (e) {
+                    console.warn(`[API Sync Notion] Could not parse date for update: ${dateInput}`, e);
+                    return null;
+                }
+            };
+
             // --- Check if document already exists --- 
             const { data: existingDoc, error: checkError } = await supabaseServiceClient
                 .from('documents')
-                .select('id')
+                .select('id, source_updated_at') // Select last known update time
                 .eq('user_id', currentUserId) // Use currentUserId
                 .eq('source_id', item.id)
                 .eq('source_type', item.source)
@@ -144,51 +157,96 @@ export async function POST(request: NextRequest) {
                 continue;
             }
 
+            // --- Handle Existing vs New Document --- 
             if (existingDoc) {
-                console.log(`[API Sync Notion] Document ${item.id} ('${item.title}') already exists for user ${currentUserId}. Skipping.`);
-                continue;
-            }
-            // --- End Check ---
+                // --- Document Exists - UPDATE METADATA --- 
+                const notionLastEdited = item.metadata?.lastEditedTime ? new Date(item.metadata.lastEditedTime) : null;
+                const dbLastUpdated = existingDoc.source_updated_at ? new Date(existingDoc.source_updated_at) : null;
 
-            if (!item.content || item.content.trim() === '') {
-              console.warn(`[API Sync Notion] Skipping item ${item.id} ('${item.title}') for user ${currentUserId} due to empty content.`);
-              continue;
-            }
-            
-            try {
-                const processArgs: ProcessDocumentArgs = {
-                    userId: currentUserId, // Use currentUserId
-                    fileName: item.title, 
-                    sourceId: item.id, 
-                    sourceType: item.source,
-                    metadata: item.metadata, 
-                    rawContent: item.content,
-                    filePath: null, 
-                    fileType: null,
-                    fileId: null, 
-                    processingOptions: null
+                // --- REMOVE Timestamp Check for Manual Sync --- 
+                // Always attempt update when manually syncing existing docs to ensure metadata is populated.
+                console.log(`[API Sync Notion] Updating existing document ${item.id} ('${item.title}') for user ${currentUserId}. (Timestamp check bypassed for manual sync)`);
+                    
+                // Extract structured data from the connector data
+                const structuredData = item.metadata?.structured || {};
+                const updatePayload: Record<string, any> = {
+                    // Update specific structured columns
+                    event_start_time: formatTimestamp(structuredData.event_start_time),
+                    event_end_time: formatTimestamp(structuredData.event_end_time),
+                    due_date: formatTimestamp(structuredData.due_date),
+                    content_status: structuredData.content_status,
+                    priority: structuredData.priority,
+                    participants: structuredData.participants,
+                    location: structuredData.location,
+                    // Always update the source timestamp
+                    source_updated_at: formatTimestamp(item.metadata?.lastEditedTime),
+                    // Optionally update title if it changed?
+                    // title: item.title, 
+                    // Optionally update the main metadata JSONB field if needed
+                    // metadata: { ...existing metadata..., ...new generic metadata... }
                 };
-                await documentProcessor.processDocument(processArgs);
-                processedCount++;
-            } catch (processingError: any) {
-                console.error(`[API Sync Notion] Error processing item ${item.id} ('${item.title}') for user ${currentUserId}:`, processingError);
-                errorCount++;
-                if (!errorMessage) errorMessage = processingError.message;
+
+                const { error: updateError } = await supabaseServiceClient
+                    .from('documents')
+                    .update(updatePayload)
+                    .eq('id', existingDoc.id);
+
+                if (updateError) {
+                    console.error(`[API Sync Notion] Error updating doc ${existingDoc.id}:`, updateError);
+                    errorCount++;
+                    if (!errorMessage) errorMessage = `DB error updating doc ${existingDoc.id}`;
+                } else {
+                    updatedCount++; // Increment update counter
+                }
+            } else {
+                 // --- Document is New - PROCESS NORMALLY --- 
+                if (!item.content || item.content.trim() === '') {
+                  console.warn(`[API Sync Notion] Skipping new item ${item.id} ('${item.title}') for user ${currentUserId} due to empty content.`);
+                  continue;
+                }
+                
+                try {
+                    const processArgs: ProcessDocumentArgs = {
+                        userId: currentUserId, // Use currentUserId
+                        fileName: item.title, 
+                        sourceId: item.id, 
+                        sourceType: item.source,
+                        metadata: item.metadata, // Pass the whole metadata object (contains structured)
+                        rawContent: item.content,
+                        createdTime: item.metadata?.createdTime, // Pass explicitly if available
+                        lastEditedTime: item.metadata?.lastEditedTime, // Pass explicitly if available
+                        filePath: null, 
+                        fileType: null,
+                        fileId: null, 
+                        processingOptions: null
+                    };
+                    await documentProcessor.processDocument(processArgs);
+                    processedCount++;
+                } catch (processingError: any) {
+                    console.error(`[API Sync Notion] Error processing new item ${item.id} ('${item.title}') for user ${currentUserId}:`, processingError);
+                    errorCount++;
+                    if (!errorMessage) errorMessage = processingError.message;
+                }
             }
         }
 
         // TODO: Update last sync time in DB for this user/connector
 
-        console.log(`[API Sync Notion] Sync finished for user ${userId}. Processed: ${processedCount}, Errors: ${errorCount}`);
+        console.log(`[API Sync Notion] Sync finished for user ${userId}. Processed new: ${processedCount}, Updated existing: ${updatedCount}, Errors: ${errorCount}`);
         if (errorCount > 0) {
              return NextResponse.json({ 
                 message: `Sync completed with ${errorCount} errors.`, 
-                processedCount: processedCount, 
-                errorCount: errorCount,
-                firstErrorMessage: errorMessage 
-            }, { status: 207 });
-        } else {
-            return NextResponse.json({ message: "Sync completed successfully.", processedCount: processedCount });
+                 processedCount: processedCount, 
+                 updatedCount: updatedCount,
+                 errorCount: errorCount,
+                 firstErrorMessage: errorMessage 
+             }, { status: 207 });
+         } else {
+            return NextResponse.json({ 
+                message: "Sync completed successfully.", 
+                processedCount: processedCount,
+                updatedCount: updatedCount // Include updated count in success message
+            });
         }
 
     } catch (error: any) {

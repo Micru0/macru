@@ -5,7 +5,7 @@ import { createClient as createServiceRoleClient } from '@supabase/supabase-js';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { embeddingService } from '@/lib/services/embedding-service';
 import { TaskType } from '@google/generative-ai';
-import { ResponseProcessor, SourceChunk, ProcessedResponse } from '@/lib/services/response-processor';
+import { ResponseProcessor, SourceChunk, ProcessedResponse, Source } from '@/lib/services/response-processor';
 import { MemoryService } from '@/lib/services/memory-service';
 import { MemoryItem, MemoryType, MemoryPriority } from '@/lib/types/memory';
 import { performance } from 'perf_hooks';
@@ -126,14 +126,28 @@ export async function POST(request: Request) {
         console.log(`[API Route] Calling match_documents for user: ${userId}`);
       }
 
+      // --- Query Parsing for Source Type ---
+      let filterSourceTypes: string[] | null = null;
+      const queryLower = query.toLowerCase();
+      if (/\bnotion\s+(documents?|pages?|notes?)\b/.test(queryLower) || queryLower.includes('notion source')) {
+        filterSourceTypes = ['notion'];
+        console.log("[API Route] Query identified as targeting Notion documents.");
+      } else if (/\b(my|uploaded)\s+files?\b/.test(queryLower) || queryLower.includes('file source')) {
+        filterSourceTypes = ['file_upload'];
+         console.log("[API Route] Query identified as targeting uploaded files.");
+      }
+      // Add more rules here for other types like 'calendar events', 'emails', etc.
+      // --- End Query Parsing ---
+
       const { data: matchData, error: matchError } = await supabaseAdmin.rpc(
         'match_documents', 
         {
-          query_embedding: queryEmbedding, 
+          query_embedding: queryEmbedding,
           match_threshold: 0.4, // Lowered threshold for testing
-          match_count: 5,       
+          match_count: 5,
           filter_user_id: userId, // Added user ID filter
-          filter_source_types: ['notion'] // Added source type filter
+          // Pass the detected source type filter, or null if none detected
+          filter_source_types: filterSourceTypes 
         }
       );
 
@@ -150,6 +164,7 @@ export async function POST(request: Request) {
         content: chunk.content,
         similarity: chunk.similarity,
         metadata: chunk.metadata || {},
+        documentType: chunk.document_type // Added documentType mapping
       }));
       
       retrievedChunks = sourceChunks; // Store the typed chunks
@@ -181,27 +196,49 @@ export async function POST(request: Request) {
 
     // --- Filter Chunks if Query Targets Specific Document --- 
     let finalChunks = retrievedChunks;
-    const specificDocQueryMatch = query.match(/^\s*(?:what is|what are|tell me about|summarize)\s+(?:the\s+)?(?:contents? of|document|page|file)\s*(?:called|named)?\s*['"“](.*?)['"”]/i);
-    const specificTitle = specificDocQueryMatch?.[1]; // Extract title from query if match
+    // Regex v4: Tries to capture after 'called'/'named' OR within quotes
+    const specificDocQueryMatch = query.match(/^.*\b(?:called|named)\s+['"“]?(.+?)['"”]?(\s+on\s+\w+)?\s*$|.*?['"“](.+?)['"”](\s+on\s+\w+)?\s*$/i);
     
+    let potentialTitle: string | undefined = undefined;
+    let potentialSuffix: string | undefined = undefined;
+
+    if (specificDocQueryMatch) {
+      // Check capture group 1 (after called/named) or group 3 (in quotes)
+      potentialTitle = specificDocQueryMatch[1] || specificDocQueryMatch[3];
+      // Check capture group 2 or group 4 for the suffix
+      potentialSuffix = specificDocQueryMatch[2] || specificDocQueryMatch[4]; 
+    }
+
+    let specificTitle: string | undefined = undefined;
+    if (potentialTitle) {
+      // Clean the extracted title
+      specificTitle = potentialTitle.trim(); 
+      // 1. Remove optional suffix like " on Notion"
+      specificTitle = specificTitle.replace(/\s+on\s+\w+\s*$/i, '').trim(); 
+      // 2. Remove trailing punctuation like ?, !, .
+      specificTitle = specificTitle.replace(/[?!.]+\s*$/, '').trim();
+      console.log(`[API Route] Query seems to target specific document. Extracted Title: "${specificTitle}" (Cleaned)`);
+    } 
+    
+    // --- Start Original Filtering Block (Modified) ---
     if (specificTitle) {
-      console.log(`[API Route] Query seems to target specific document: "${specificTitle}"`);
+      // Use the CLEANED specificTitle for filtering
       const filteredChunks = retrievedChunks.filter(chunk => 
-        chunk.documentName?.toLowerCase() === specificTitle.toLowerCase()
+        chunk.documentName?.toLowerCase() === specificTitle?.toLowerCase()
       );
       
       if (filteredChunks.length > 0) {
         console.log(`[API Route] Filtering context to ${filteredChunks.length} chunks from document "${specificTitle}".`);
         finalChunks = filteredChunks; // Use only the filtered chunks
       } else {
-        console.log(`[API Route] Specific document "${specificTitle}" mentioned, but no matching chunks found in retrieved set. Using all retrieved chunks.`);
-        // Keep finalChunks as the original retrievedChunks
+        console.log(`[API Route] Specific document "${specificTitle}" identified, but no matching chunks found in retrieved set. Using all retrieved chunks.`);
+        // Keep finalChunks as the original retrievedChunks - potential issue if cleaning fails?
       }
     } else {
       console.log("[API Route] Query seems general. Using all retrieved chunks for context.");
       // Keep finalChunks as the original retrievedChunks
     }
-    // --- End Filtering Chunks --- 
+    // --- End Original Filtering Block --- 
 
     // --- 3. Assemble Contexts --- 
     // Include metadata with chunk content
@@ -213,7 +250,19 @@ export async function POST(request: Request) {
               if (chunk.metadata.url) metadataString += `\nURL: ${chunk.metadata.url}`;
               if (chunk.metadata.parentType) metadataString += `\nParent Type: ${chunk.metadata.parentType}`;
               if (chunk.metadata.parentId) metadataString += `\nParent ID: ${chunk.metadata.parentId}`;
-              // Add other relevant metadata fields if needed
+              
+              // --- Add Structured Metadata --- 
+              const structured = chunk.metadata.structured as Record<string, any> | undefined;
+              if (structured) {
+                  if (structured.content_status) metadataString += `\nStatus: ${structured.content_status}`;
+                  if (structured.priority) metadataString += `\nPriority: ${structured.priority}`;
+                  if (structured.due_date) metadataString += `\nDue Date: ${new Date(structured.due_date).toLocaleDateString()}`;
+                  if (structured.event_start_time) metadataString += `\nEvent Start: ${new Date(structured.event_start_time).toLocaleString()}`;
+                  if (structured.event_end_time) metadataString += `\nEvent End: ${new Date(structured.event_end_time).toLocaleString()}`;
+                  if (structured.participants) metadataString += `\nParticipants: ${Array.isArray(structured.participants) ? structured.participants.join(', ') : structured.participants}`;
+                  if (structured.location) metadataString += `\nLocation: ${structured.location}`;
+              }
+              // --- End Add Structured Metadata --- 
           }
           return `--- Chunk Start ---\n[Metadata]\n${metadataString}\n\n[Content]\n${chunk.content}\n--- Chunk End ---`;
       })
@@ -254,6 +303,10 @@ export async function POST(request: Request) {
     });
     llmTime = performance.now() - llmStartTime;
 
+    // --- Log Raw LLM Response --- 
+    console.log("[API Route] Raw LLM Response Text:", llmResponse.text);
+    // --- End Log --- 
+
     // --- Handle potential Action Request --- 
     if (llmResponse.actionRequest) {
       const actionRequest = llmResponse.actionRequest;
@@ -291,6 +344,89 @@ export async function POST(request: Request) {
       finalChunks // Use the potentially filtered chunks for citation
     );
     processingTime = performance.now() - processingStartTime;
+    
+    // --- Parse LLM response for explicit source IDs ---
+    let llmAnswerText = processedResponse.responseText; // Start with the processed text
+    let primarySourceIds: string[] | null = null;
+    const sourceLineMatch = llmAnswerText.match(/^Primary Sources:\s*(.*)$/m); // Multiline match
+
+    if (sourceLineMatch && sourceLineMatch[1]) {
+        primarySourceIds = sourceLineMatch[1].split(',').map(id => id.trim()).filter(id => id);
+        // Remove the source line from the text sent to the UI
+        llmAnswerText = llmAnswerText.replace(/^Primary Sources:.*$/m, '').trim();
+        console.log(`[API Route Sources] LLM identified primary sources: [${primarySourceIds.join(', ')}]`);
+    } else {
+        console.log("[API Route Sources] LLM did not provide explicit primary sources.");
+    }
+
+    // --- Construct final sources for the UI dropdown (Using LLM or Heuristic) ---
+    let finalSources: Source[] = [];
+    const similarityThresholdGap = 0.05; // Keep threshold for fallback
+
+    // Use the CLEANED specificTitle here as well
+    if (specificTitle) { 
+      // Case 1: Query targeted a specific document title (Highest Priority)
+      const uniqueDocs = new Map<string, SourceChunk>();
+      finalChunks.forEach(chunk => { 
+        if (chunk.documentName?.toLowerCase() === specificTitle?.toLowerCase()) {
+          if (!uniqueDocs.has(chunk.documentId)) {
+            uniqueDocs.set(chunk.documentId, chunk);
+          }
+        }
+      });
+      finalSources = Array.from(uniqueDocs.values()).map(chunk => ({
+         title: `${chunk.documentType === 'notion' ? 'Notion: ' : chunk.documentType === 'file_upload' ? 'File: ' : ''}${chunk.documentName}`,
+      }));
+      console.log(`[API Route Sources] Specific doc query. Showing ${finalSources.length} source(s) matching title.`);
+
+    } else if (primarySourceIds) {
+        // Case 2: General query & LLM provided source IDs
+        const sourceIdSet = new Set(primarySourceIds);
+        const uniqueDocs = new Map<string, SourceChunk>();
+        // Iterate through the *original context chunks* to find matches for the IDs
+        finalChunks.forEach(chunk => { 
+            // More robust check: See if any ID in the set is a prefix of the chunk's documentId
+            const matchFound = primarySourceIds.some(llmId => chunk.documentId.startsWith(llmId));
+            if (matchFound && !uniqueDocs.has(chunk.documentId)) {
+                uniqueDocs.set(chunk.documentId, chunk);
+            }
+        });
+        finalSources = Array.from(uniqueDocs.values()).map(chunk => ({
+            title: `${chunk.documentType === 'notion' ? 'Notion: ' : chunk.documentType === 'file_upload' ? 'File: ' : ''}${chunk.documentName}`,
+        }));
+        console.log(`[API Route Sources] Using sources provided by LLM: ${finalSources.length} unique sources.`);
+
+    } else if (finalChunks.length === 1) {
+        // Case 3 (Fallback): Only one chunk retrieved - show that source
+        const topChunk = finalChunks[0];
+        finalSources = [{
+          title: `${topChunk.documentType === 'notion' ? 'Notion: ' : topChunk.documentType === 'file_upload' ? 'File: ' : ''}${topChunk.documentName}`,
+        }];
+        console.log(`[API Route Sources] Fallback: Only 1 chunk retrieved. Showing 1 source.`);
+        
+    } else if (finalChunks.length > 1 && 
+               (finalChunks[0].similarity || 0) - (finalChunks[1].similarity || 0) > similarityThresholdGap) {
+      // Case 4 (Fallback): General query, significant similarity gap
+      const topChunk = finalChunks[0];
+      finalSources = [{
+        title: `${topChunk.documentType === 'notion' ? 'Notion: ' : topChunk.documentType === 'file_upload' ? 'File: ' : ''}${topChunk.documentName}`,
+      }];
+      console.log(`[API Route Sources] Fallback: General query with significant similarity gap. Showing top 1 source.`);
+
+    } else if (finalChunks.length > 0) {
+      // Case 5 (Fallback): General query, multiple close sources or LLM didn't provide IDs
+      const uniqueDocs = new Map<string, SourceChunk>();
+      finalChunks.forEach(chunk => {
+        if (!uniqueDocs.has(chunk.documentId)) {
+          uniqueDocs.set(chunk.documentId, chunk);
+        }
+      });
+      finalSources = Array.from(uniqueDocs.values()).map(chunk => ({
+         title: `${chunk.documentType === 'notion' ? 'Notion: ' : chunk.documentType === 'file_upload' ? 'File: ' : ''}${chunk.documentName}`,
+      }));
+      console.log(`[API Route Sources] Fallback: General query with multiple close sources or no LLM sources provided. Showing ${finalSources.length} sources.`);
+    }
+    // --- End Construct final sources ---
 
     // --- 7. Cache Store ---
     queryCache.set(cacheKey, processedResponse);
@@ -302,7 +438,12 @@ export async function POST(request: Request) {
     console.log(`[API Route - Success] Total Time: ${totalTime.toFixed(2)}ms (Embed: ${embeddingTime.toFixed(2)}ms, Search: ${searchTime.toFixed(2)}ms, Memory: ${memoryTime.toFixed(2)}ms, LLM: ${llmTime.toFixed(2)}ms, Process: ${processingTime.toFixed(2)}ms)`);
 
     // Use the potentially modified response object
-    response = NextResponse.json({ response: processedResponse });
+    response = NextResponse.json({
+       response: { 
+         responseText: llmAnswerText, // Use the cleaned answer text
+         sources: finalSources 
+       } 
+     });
     // TODO: Manually copy cookies if necessary
     return response;
   } catch (error: any) {
@@ -314,7 +455,7 @@ export async function POST(request: Request) {
   }
 }
 
-// Updated function to include both document and memory context
+// Updated function to include both document and memory context AND request source IDs
 function formatPromptWithHistoryAndContext(
   query: string, 
   history: HistoryItem[],
@@ -336,20 +477,44 @@ function formatPromptWithHistoryAndContext(
     ? `## Relevant Personal Memory Context:\n${memoryContext}\n\n` // Use Markdown heading
     : '';
 
-  // More general but clear instructions
+  // More general but clear instructions + Source ID request
   return (
     `You are a helpful and professional assistant. Respond concisely using clear Markdown formatting. `
     + `Use the provided context (documents with metadata, memory) to answer the user's query accurately. `
-    + `If the query seems to refer to a specific document or topic within the context (e.g., a Notion page), structure your response logically: `
-    + `  - Start with a clear heading for the main topic (e.g., using '**Title**' or '### Title'). `
-    + `  - Summarize the key information from the context related to that topic. `
-    + `  - If the context indicates a hierarchy (like child pages in Notion, identified by '[Child Page: ...]' markers or metadata), represent this clearly, perhaps using nested bullet points or subheadings for children. Summarize child content briefly. `
-    + `  - Example for Hierarchy: \n    **Parent Page Title**\n    [Summary of parent content]...\n    *   **Child Page 1 Title**: [Brief summary]...\n    *   **Child Page 2 Title**: [Brief summary]...\n` // Provide a clearer example
-    + `For general questions, synthesize information from all relevant context sources professionally. `
-    + `ALWAYS cite the source document name(s) or memory type when appropriate, but DO NOT include internal IDs or raw chunk indices. `
-    + `If the context does not contain the answer, state that clearly. Do not invent information. \n\n`
+    + `Each document chunk in the context includes metadata like 'Source Document: [Name] (ID: [documentId], Chunk: [index])'. `
+    + `Pay close attention to any structured metadata provided within the [Metadata] block of each chunk, such as Status, Priority, Due Date, Event Start/End Times, Participants, or Location. Use this information when relevant to the query.
+
+`
+    + `== Primary Task Determination ==
+`
+    + `1. IF the user query asks for a LIST or SUMMARY of items OR asks about information likely contained in structured metadata (e.g., 'List my Notion documents', 'What is the status of X?', 'Show tasks due today', 'Summarize my files'), your primary task is SYNTHESIS. Synthesize the information from ALL relevant context chunks provided, utilizing both the text content and the structured metadata fields. Your answer should reflect the full scope of the relevant context provided.
+`
+    + `2. ELSE IF the query refers to a SPECIFIC document or topic mentioned in the context (e.g., 'What is document X about?', 'Details on the Y meeting'), your primary task is FOCUSED EXTRACTION. Structure your response logically around that specific topic using headings and summaries as appropriate, incorporating relevant structured metadata found in the context for that document/topic.
+`
+    + `3. ELSE (for general questions not covered above), your primary task is GENERAL QA. Synthesize information from the most relevant context sources professionally, including structured metadata if pertinent.
+
+`
+    + `== Response Formatting ==
+`
+    + `Regardless of the task, DO NOT include inline source citations (like \"Source Document: ...\") directly in your main response text. Source attribution will be handled separately.
+`
+    + `If the context does not contain the answer for the *determined primary task*, state that clearly. Do not invent information.
+
+`
+    // --- ADDED INSTRUCTION FOR SOURCE IDs ---
+    + `== Source Attribution ==
+`
+    + `After providing your complete answer based on the determined task, add a new line starting EXACTLY with 'Primary Sources:' followed by a comma-separated list of the document IDs (e.g., 'abc-123, def-456') corresponding to the document(s) you used to formulate the answer. `
+    + `IMPORTANT: For SYNTHESIS tasks (summaries/lists), you MUST include ALL the unique document IDs from the context you used to create that list or summary in the 'Primary Sources:' line. For example, if context contained chunks from documents 'doc-A', 'doc-B', and 'doc-C', and you summarized all three, the line must be 'Primary Sources: doc-A, doc-B, doc-C'. Do not omit any used IDs. For FOCUSED EXTRACTION or GENERAL QA tasks, list only the essential ID(s) used.
+
+` 
+    // --- END ADDED INSTRUCTION ---
+    + `== Provided Context and Query ==
+`
     + `${formattedHistory}${memContextSection}${docContextSection}`
-    + `User: ${query}\n\n`
+    + `User: ${query}
+
+`
     + `Assistant:`
   );
 } 

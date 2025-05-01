@@ -11,10 +11,9 @@ import { ChunkWithEmbedding, DocumentChunk, DocumentEmbedding, EmbeddingModel } 
 import { Database } from '../types/database.types';
 import { getApiKey } from '@/lib/credentials'; // Import credential helper
 
-// Supabase client configuration
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-// const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string; // Don't use anon key here
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string; // Use service role key
+// Use non-prefixed variables for server-side initialization
+const supabaseUrl = process.env.SUPABASE_URL as string;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string;
 
 const MAX_BATCH_SIZE = 20; // Maximum number of chunks to process in a single batch
 const RATE_LIMIT_DELAY = 1000; // Delay between API calls in milliseconds
@@ -66,15 +65,20 @@ export class EmbeddingService {
    */
   constructor(options: EmbeddingOptions = {}) {
     this.options = { ...DEFAULT_EMBEDDING_OPTIONS, ...options };
-    // Use the Service Role Key for backend embedding tasks
-    if (!supabaseServiceRoleKey) {
-      console.warn('WARNING: SUPABASE_SERVICE_ROLE_KEY is not set for EmbeddingService. RLS may block embedding storage.');
-      // Optionally throw an error if it's critical
-      // throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set, cannot initialize EmbeddingService for backend use.');
+    
+    // Check for required server-side variables
+    if (!supabaseUrl) {
+      // Throw immediately if URL is missing, as client creation will fail
+      throw new Error('SUPABASE_URL is not set, cannot initialize EmbeddingService.');
     }
-    // Initialize with Service Role Key. If it's undefined, client creation might fail later, 
-    // or operations will fail due to lack of permissions, relying on the warning above.
-    this.supabase = createClient(supabaseUrl, supabaseServiceRoleKey); 
+    if (!supabaseServiceRoleKey) {
+      console.warn('WARNING: SUPABASE_SERVICE_ROLE_KEY is not set for EmbeddingService. RLS could block embedding storage if not configured properly.');
+      // We might allow continuation if RLS/anon key is sufficient for some operations,
+      // but storing embeddings usually requires service_role.
+    }
+    
+    // Initialize with potentially null service key, relying on Supabase client/API errors later if needed
+    this.supabase = createClient<Database>(supabaseUrl, supabaseServiceRoleKey);
 
     // Initialize Gemini client
     const geminiApiKey = getApiKey('gemini');
@@ -82,8 +86,6 @@ export class EmbeddingService {
       this.genAI = new GoogleGenerativeAI(geminiApiKey);
     } else {
       console.error('ERROR: Gemini API key not found. Embedding generation will fail.');
-      // Optionally throw an error
-      // throw new Error('Gemini API key not configured, cannot initialize EmbeddingService.');
     }
   }
 
@@ -277,92 +279,122 @@ export class EmbeddingService {
     cached: ChunkWithEmbedding[];
     missing: DocumentChunk[];
   }> {
+    const chunkIds = chunks.map((chunk) => chunk.id);
+    const cached: ChunkWithEmbedding[] = [];
+    const missing: DocumentChunk[] = [];
+
     try {
-      const chunkIds = chunks.map(chunk => chunk.id);
-      
       const { data, error } = await this.supabase
         .from('embeddings')
-        .select('*, chunk_id')
+        .select('chunk_id, embedding, model') // Select model too
         .in('chunk_id', chunkIds);
-      
+
       if (error) {
-        throw error;
+        console.error('[EmbeddingService] Error fetching existing embeddings:', error);
+        // If fetch fails, assume all are missing
+        return { cached: [], missing: chunks };
       }
-      
-      const embeddingsMap = new Map<string, DocumentEmbedding>();
-      
-      // Convert data to DocumentEmbedding objects and map by chunk_id
-      for (const row of data) {
-        const embedding: DocumentEmbedding = {
-          id: row.id,
-          chunk_id: row.chunk_id,
-          embedding: row.embedding,
-          model: row.model,
-          created_at: row.created_at,
-        };
-        
-        embeddingsMap.set(row.chunk_id, embedding);
-      }
-      
-      // Separate chunks into cached and missing
-      const cached: ChunkWithEmbedding[] = [];
-      const missing: DocumentChunk[] = [];
-      
-      for (const chunk of chunks) {
-        const embedding = embeddingsMap.get(chunk.id);
-        
-        if (embedding) {
-          cached.push({ ...chunk, embedding });
+
+      const foundEmbeddings = new Map<string, { embedding: number[]; model: string }>();
+      data.forEach(item => {
+        let parsedEmbedding: number[] | null = null;
+        if (typeof item.embedding === 'string') {
+          try {
+            parsedEmbedding = JSON.parse(item.embedding);
+            if (!Array.isArray(parsedEmbedding) || !parsedEmbedding.every(n => typeof n === 'number')) {
+                console.warn(`[EmbeddingService] Invalid embedding format retrieved for chunk ${item.chunk_id}. Skipping.`);
+                parsedEmbedding = null;
+            }
+          } catch (parseError) {
+            console.error(`[EmbeddingService] Error parsing stored embedding for chunk ${item.chunk_id}:`, parseError);
+            parsedEmbedding = null;
+          }
+        } else if (item.embedding === null) {
+             console.warn(`[EmbeddingService] Null embedding found for chunk ${item.chunk_id}`);
+        } else {
+            // Handle unexpected types if necessary, for now treat as null
+            console.warn(`[EmbeddingService] Unexpected embedding type (${typeof item.embedding}) found for chunk ${item.chunk_id}`);
+            parsedEmbedding = null;
+        }
+
+        if (parsedEmbedding) { // Only add if parsing was successful
+          foundEmbeddings.set(item.chunk_id, {
+            embedding: parsedEmbedding, 
+            model: item.model || 'unknown' // Provide default for model
+          });
+        }
+      });
+
+      chunks.forEach(chunk => {
+        const found = foundEmbeddings.get(chunk.id);
+        if (found) {
+          cached.push({ ...chunk, embedding: found }); // Push ChunkWithEmbedding
         } else {
           missing.push(chunk);
         }
-      }
-      
-      return { cached, missing };
+      });
+
     } catch (error) {
-      console.error('Error checking for existing embeddings:', error);
-      // If there's an error checking the cache, assume all need processing
+      console.error('[EmbeddingService] Error processing existing embeddings:', error);
+      // Fallback: assume all chunks are missing
       return { cached: [], missing: chunks };
     }
+
+    return { cached, missing };
   }
 
   /**
    * Store an embedding in the database
-   * @param chunkId ID of the chunk
+   * @param chunkId ID of the related chunk
    * @param embedding Vector embedding
-   * @returns Stored embedding object
+   * @returns The stored embedding data
    */
   private async storeEmbedding(
     chunkId: string,
     embedding: number[]
   ): Promise<DocumentEmbedding> {
+    const embeddingString = JSON.stringify(embedding); // Convert array to string
+    const modelName = this.options.model || 'unknown'; // Get model name
+
     try {
-      const model = this.options.model || 'gemini';
-      
       const { data, error } = await this.supabase
         .from('embeddings')
         .insert({
           chunk_id: chunkId,
-          embedding,
-          model,
+          embedding: embeddingString, // Store as string
+          model: modelName // Store model name
         })
         .select()
         .single();
-      
+
       if (error) {
-        throw error;
+        throw new EmbeddingError(`Failed to store embedding for chunk ${chunkId}: ${error.message}`, chunkId, error);
       }
-      
+      if (!data) {
+          throw new EmbeddingError(`No data returned after storing embedding for chunk ${chunkId}`, chunkId);
+      }
+
+      // Parse the embedding string back for the return type if needed, or adjust return type
+      // For now, assume DocumentEmbedding expects number[] and parse it back
+      let parsedEmbedding: number[] | null = null;
+      if (typeof data.embedding === 'string') {
+          try {
+              parsedEmbedding = JSON.parse(data.embedding);
+          } catch { /* ignore parse error on return */ }
+      }
+
       return {
         id: data.id,
         chunk_id: data.chunk_id,
-        embedding: data.embedding,
-        model: data.model,
-        created_at: data.created_at,
+        embedding: parsedEmbedding || [], // Return number[] or empty array
+        model: data.model || 'unknown', // Provide default
+        created_at: data.created_at || new Date().toISOString(),
       };
+
     } catch (error) {
+      if (error instanceof EmbeddingError) throw error;
       throw new EmbeddingError(
-        `Failed to store embedding: ${(error as Error).message}`,
+        `Unexpected error storing embedding for chunk ${chunkId}: ${(error as Error).message}`,
         chunkId,
         error as Error
       );

@@ -17,7 +17,8 @@ import type { // Use 'import type' for type-only imports
     BlockObjectResponse, 
     PageObjectResponse, 
     PartialBlockObjectResponse, 
-    PartialPageObjectResponse 
+    PartialPageObjectResponse, 
+    GetPagePropertyResponse 
 } from '@notionhq/client/build/src/api-endpoints'; // Corrected import syntax
 
 // TODO: Implement proper error handling
@@ -225,7 +226,6 @@ export class NotionConnector implements DataConnector {
   // Modify fetchData to accept SupabaseClient
   async fetchData(userId: string, supabase: SupabaseClient, lastSyncTime?: Date): Promise<ConnectorData[]> {
     console.log(`[NotionConnector] Fetching data for user ${userId}, last sync: ${lastSyncTime}`);
-    // Pass the provided Supabase client to initializeClient
     const client = await this.initializeClient(userId, supabase);
     if (!client) {
       throw new Error('Notion client not initialized. User might not be connected or token is invalid.');
@@ -234,7 +234,7 @@ export class NotionConnector implements DataConnector {
     const fetchedData: ConnectorData[] = [];
     let hasMore = true;
     let startCursor: string | undefined = undefined;
-    const pageSize = 50; // Reduce page size for potentially heavy content fetching
+    const pageSize = 50; 
 
     while(hasMore) {
       try {
@@ -244,73 +244,182 @@ export class NotionConnector implements DataConnector {
           sort: { direction: 'ascending', timestamp: 'last_edited_time' },
           page_size: pageSize,
           start_cursor: startCursor,
+          // Add filter for only pages (not databases) if needed
+          // filter: { property: 'object', value: 'page' }
         });
 
         console.log(`[NotionConnector] Found ${response.results.length} items in this batch.`);
 
-        for (const item of response.results) {
-          if (isFullPage(item)) { 
-            const page: PageObjectResponse = item;
-            let title = 'Untitled';
-            const titleProp = page.properties.title;
-            if (titleProp?.type === 'title' && titleProp.title?.[0]?.plain_text) {
-              title = titleProp.title[0].plain_text;
+        for (const result of response.results) {
+          if (result.object === 'page' && isFullPage(result)) {
+            const page = result;
+            const pageId = page.id;
+            let pageTitle = 'Untitled';
+            let structuredMetadata: Record<string, any> = {}; // Object to hold extracted structured data
+
+            // --- Extract Title --- 
+            // Check common title property names ('title' first, then 'Name')
+            const titleProperty = page.properties['title'] || page.properties['Name'];
+            if (titleProperty?.type === 'title') {
+              pageTitle = titleProperty.title.map(t => t.plain_text).join('') || 'Untitled';
             }
             
-            console.log(`[NotionConnector] Processing page: '${title}' (${page.id})`);
-            // Fetch actual page content
-            const pageContent = await this.fetchPageContent(client, page.id);
-            
-            // --- Enhance Metadata --- 
-            let pageMetadata: Record<string, any> = {
-              notionPageId: page.id,
-              lastEditedTime: page.last_edited_time,
-              createdTime: page.created_time,
-              url: page.url, // Add Notion page URL
-              title: title
-            };
-            
-            // Extract parent information
-            if (page.parent) {
-              pageMetadata.parentType = page.parent.type;
-              if (page.parent.type === 'page_id') {
-                pageMetadata.parentId = page.parent.page_id;
-              } else if (page.parent.type === 'database_id') {
-                pageMetadata.parentId = page.parent.database_id;
-              } // 'workspace' type has no specific ID to store here
+            // --- Extract Structured Metadata from Properties --- 
+            for (const propName in page.properties) {
+              const property = page.properties[propName];
+              console.log(`[NotionConnector DEBUG] Processing property: '${propName}', Type: ${property?.type}`); // Log property name and type
+              
+              // Helper to safely get property value based on type
+              const getPropertyValue = (prop: GetPagePropertyResponse): any => {
+                if (!prop) return null;
+                switch (prop.type) {
+                    case 'status': return prop.status?.name ?? null;
+                    case 'date': return { start: prop.date?.start, end: prop.date?.end };
+                    case 'people': 
+                      // Check if people is an array before mapping
+                      return Array.isArray(prop.people) 
+                        ? prop.people.map((p: any) => p.name || p.id) // Add type :any for p
+                        : null; 
+                    case 'select': return prop.select?.name ?? null;
+                    case 'multi_select': 
+                      // Check if multi_select is an array before mapping
+                      return Array.isArray(prop.multi_select) 
+                        ? prop.multi_select.map((s: any) => s.name) // Add type :any for s
+                        : null;
+                    case 'rich_text': 
+                      // Check if rich_text is an array before mapping
+                      return Array.isArray(prop.rich_text) 
+                        ? prop.rich_text.map((t: any) => t.plain_text).join('') // Add type :any for t
+                        : null;
+                    case 'number': return prop.number;
+                    case 'checkbox': return prop.checkbox;
+                    case 'url': return prop.url;
+                    case 'email': return prop.email;
+                    case 'phone_number': return prop.phone_number;
+                    case 'title':
+                      return Array.isArray(prop.title) 
+                        ? prop.title.map((t: any) => t.plain_text).join('') // Add type :any for t
+                        : null;
+                    // Add cases for other types if needed (files, relation, formula, rollup)
+                    default: 
+                      // Log unhandled types for debugging
+                      // console.log(`[NotionConnector DEBUG] Unhandled property type: ${prop.type}`);
+                      return null; 
+                }
+              };
+
+              // Fetch the full property item if needed (might require extra API call)
+              // For simplicity, let's assume page.properties contains enough info
+              // const fullProperty = await client.pages.properties.retrieve({ page_id: pageId, property_id: property.id });
+              const propValue = getPropertyValue(property as GetPagePropertyResponse); // Cast needed
+              console.log(`[NotionConnector DEBUG]   Prop value extracted:`, propValue); // Log extracted value
+              
+              // Map specific property names/types to our standard structured fields
+              switch (property.type) {
+                case 'status':
+                  console.log(`[NotionConnector DEBUG]   Attempting to map type 'status'...`);
+                  structuredMetadata.content_status = propValue;
+                  console.log(`[NotionConnector DEBUG]   Mapped type 'status' to content_status:`, propValue);
+                  break;
+                case 'date':
+                  console.log(`[NotionConnector DEBUG]   Attempting to map type 'date' for prop '${propName}'...`);
+                  // Simple logic: Use start as event_start, end as event_end.
+                  // Could be refined based on property name (e.g., if name is 'Due Date').
+                  if (propValue) {
+                    structuredMetadata.event_start_time = propValue.start;
+                    structuredMetadata.event_end_time = propValue.end;
+                    console.log(`[NotionConnector DEBUG]   Mapped type 'date' to event times:`, {start: propValue.start, end: propValue.end});
+                    if (propName.toLowerCase().includes('due')) {
+                      console.log(`[NotionConnector DEBUG]     Prop name '${propName}' includes 'due'. Mapping to due_date...`);
+                      structuredMetadata.due_date = propValue.start; // Assume start is the due date
+                      console.log(`[NotionConnector DEBUG]     Also mapped 'date' with name '${propName}' to due_date:`, propValue.start);
+                    }
+                  }
+                  break;
+                case 'people':
+                  console.log(`[NotionConnector DEBUG]   Attempting to map type 'people' for prop '${propName}'...`);
+                  // Check if property name suggests participants/assignees
+                  if (propName.toLowerCase().includes('assign') || propName.toLowerCase().includes('participant')) {
+                    console.log(`[NotionConnector DEBUG]     Prop name '${propName}' includes 'assign' or 'participant'. Mapping to participants...`);
+                    structuredMetadata.participants = propValue;
+                    console.log(`[NotionConnector DEBUG]   Mapped type 'people' with name '${propName}' to participants:`, propValue);
+                  }
+                  break;
+                case 'select':
+                  console.log(`[NotionConnector DEBUG]   Attempting to map type 'select' for prop '${propName}'...`);
+                  // Check if property name suggests priority
+                  if (propName.toLowerCase().includes('priority')) {
+                    console.log(`[NotionConnector DEBUG]     Prop name '${propName}' includes 'priority'. Mapping to priority...`);
+                    structuredMetadata.priority = propValue;
+                    console.log(`[NotionConnector DEBUG]   Mapped type 'select' with name '${propName}' to priority:`, propValue);
+                  }
+                  break;
+                // Add more mappings as needed
+              }
+              
+              // Also store all properties in the generic metadata field for reference
+              if (propValue !== null) {
+                 if (!structuredMetadata.allProperties) structuredMetadata.allProperties = {};
+                 structuredMetadata.allProperties[propName] = propValue;
+              }
             }
-            // --- End Enhance Metadata ---
-            
+
+            // --- Log Extracted Structured Data ---
+            console.log(`[NotionConnector] Extracted structuredMetadata for page ${pageId} ('${pageTitle}'):`, JSON.stringify(structuredMetadata, null, 2));
+
+            // --- Fetch Page Content --- 
+            console.log(`[NotionConnector] Fetching content for page: ${pageId} (${pageTitle})`);
+            let pageContent = '';
+            try {
+              pageContent = await this.fetchPageContent(client, pageId);
+            } catch (contentError) {
+              console.error(`[NotionConnector] Failed to fetch content for page ${pageId}:`, contentError);
+              // Decide whether to skip the page or ingest with title/metadata only
+              // For now, let's skip pages where content fetching fails
+              continue; 
+            }
+
+            // --- Add to Fetched Data --- 
             fetchedData.push({
-              id: page.id,
-              type: 'page',
-              title: title,
-              content: pageContent, // Use fetched content
-              metadata: pageMetadata, // Pass the enhanced metadata
-              source: this.type,
-              lastModified: new Date(page.last_edited_time),
+              id: pageId, // Correct field name: id
+              source: this.type, // Correct field name: source
+              type: 'page', // Add the type of Notion object
+              content: pageContent,
+              title: pageTitle,
+              // Include structured metadata within the main metadata object
+              metadata: { 
+                url: page.url,
+                createdTime: page.created_time,
+                lastEditedTime: page.last_edited_time,
+                icon: page.icon,
+                cover: page.cover,
+                archived: page.archived,
+                structured: structuredMetadata, // Nest structured data here
+                // Include properties directly here as well if needed for fallback?
+              },
+              lastModified: new Date(page.last_edited_time), // Add last modified
             });
-          } else if (item.object === 'database') {
-             console.log(`[NotionConnector] Found database: ${item.id} - Skipping database content for now.`);
-             // TODO: Implement database row fetching if needed
           } else {
-            console.log(`[NotionConnector] Found non-page/database item: ${item.object} (${item.id}) - Skipping.`);
+            // console.log(`[NotionConnector] Skipping non-page or partial result: ${result.id}`);
           }
         }
 
         hasMore = response.has_more;
         startCursor = response.next_cursor ?? undefined;
-        console.log(`[NotionConnector] Batch finished. hasMore: ${hasMore}, nextCursor: ${startCursor ? '****' : 'null'}`);
 
-      } catch (error: any) {
-        console.error('[NotionConnector] Error fetching data batch:', error.body || error.message);
-        hasMore = false; // Stop pagination on error
-        // Re-throw or handle differently?
-        throw new Error(`Failed to fetch data from Notion: ${error.message}`);
+        // Add a small delay to respect rate limits
+        await new Promise(resolve => setTimeout(resolve, 250)); 
+
+      } catch (error) {
+        console.error('[NotionConnector] Error fetching data from Notion:', error);
+        // Stop fetching on error for now
+        hasMore = false; 
+        // Optionally throw error to signal failure
+        // throw new Error(`Failed to fetch Notion data: ${error.message}`);
       }
     }
 
-    console.log(`[NotionConnector] Fetched a total of ${fetchedData.length} items.`);
+    console.log(`[NotionConnector] Finished fetching. Total items processed: ${fetchedData.length}`);
     return fetchedData;
   }
   
@@ -406,4 +515,4 @@ export class NotionConnector implements DataConnector {
 }
 
 // Export instance
-export const notionConnector = new NotionConnector(); 
+export const notionConnector = new NotionConnector();

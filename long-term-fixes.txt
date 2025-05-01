@@ -57,3 +57,61 @@ This file tracks ideas for future enhancements and fixes beyond the initial scop
         *   All connector secrets (`NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`, `NOTION_REDIRECT_URI`, etc. for Notion and future integrations like Gmail, Linear).
         *   LLM API Keys (`GOOGLE_API_KEY`, `GEMINI_API_KEY`, etc.)
         *   `NODE_ENV`: Should likely be set to `production`. 
+
+10. **Resolve Vercel Deployment Workarounds:**
+    *   **Problem:** Several workarounds were implemented to achieve successful deployment on Vercel, bypassing type checks and using `@ts-ignore`. These introduce technical debt and mask potential runtime errors.
+    *   **Fixes Needed:**
+        *   **File Service Types:** Resolve the underlying type casting issues in `lib/services/file-service.ts` related to `FileMetadata` (specifically `file_url` and potentially `metadata` types mismatching between database results and the interface). Remove the `@ts-ignore` directives on return statements (e.g., `uploadFile`, `getUserFiles`, `getFiles`, `getFile`, `updateFile`).
+        *   **Auth Callback Types:** Fix the cookie handling type errors in `app/auth/callback/route.ts`. The `cookies().get()` method and the functions passed to `createServerClient` (`get`, `set`, `remove`) are incorrectly inferred or typed, necessitating `@ts-ignore`. Investigate the interaction between `@supabase/ssr`, Next.js `cookies()`, and TypeScript inference in Route Handlers. Remove the `@ts-ignore` directives.
+        *   **TypeScript Build Errors:** Once the type errors are resolved, re-enable TypeScript checks during the Vercel build process by setting `typescript: { ignoreBuildErrors: false }` in `next.config.ts`.
+        *   **ESLint Build Errors:** Address all reported ESLint issues (unused variables, `any` types, unescaped characters, etc.) and re-enable ESLint checks during the Vercel build by setting `eslint: { ignoreDuringBuilds: false }` in `next.config.ts`.
+    *   **Affected Files:** `lib/services/file-service.ts`, `app/auth/callback/route.ts`, `next.config.ts`, various files with ESLint errors.
+
+11. **Notion Connector Scalability:**
+    *   **Problem:** The current Notion connector and background sync function (`sync-notion-all-users`) are likely to fail or perform poorly when syncing accounts with a large number of documents (e.g., 1000+) due to Notion API rate limits, Supabase function execution time limits, and potential performance bottlenecks in processing/embedding/storing vast amounts of data.
+    *   **Solution:**
+        *   Refactor the sync process (especially `sync-notion-all-users`) to handle large accounts asynchronously. Consider using a queue system (e.g., Supabase MQ, Inngest) or batch processing across multiple invocations to avoid timeouts.
+        *   Implement robust rate limit handling (e.g., exponential backoff, respecting `Retry-After` headers) for all Notion API calls within the connector.
+        *   Provide UI options in Settings for users to select specific Notion databases or top-level pages to sync, rather than importing everything by default.
+        *   Monitor database size and query performance (`match_documents`) as data scales. Optimize database queries and potentially plan for migration to a dedicated vector database if `pgvector` performance degrades.
+        *   Add clearer UI feedback on the status and progress of large sync operations.
+    *   **Affected Files:** `supabase/functions/sync-notion-all-users/index.ts`, `lib/connectors/notion.ts`, `app/api/sync/notion/route.ts`, `app/api/documents/ingest/route.ts`, `app/dashboard/settings/page.tsx` (for sync config UI).
+
+12. **Implement Hybrid Retrieval for Structured and Unstructured Data:**
+    *   **Goal:** Enhance querying to leverage both unstructured text content (via vector search) and associated structured metadata (dates, statuses, types, relationships) ingested from sources like Calendar, Linear, etc. This enables complex queries like "what meetings do I have today?" or retrieving documents/tasks related to a specific topic across all sources.
+    *   **Current Limitation:** Retrieval primarily uses vector search on text, making it difficult to filter or query based on specific metadata fields.
+    *   **Implementation Steps:**
+        *   **(Schema Enhancement):** Update database schema (`documents`, `chunks`, or new tables) to store key structured metadata extracted during ingestion.
+        *   **(Ingestion Update):** Modify data connectors and `DocumentProcessor` to extract and store this structured metadata according to the new schema.
+        *   **(Hybrid Retrieval Logic):** Implement backend logic (in API routes or a dedicated service) to:
+            *   Parse user queries to identify structured filters (dates, statuses, etc.).
+            *   Execute *both* vector search (for text relevance) and metadata queries (e.g., SQL WHERE clauses).
+            *   Combine and rank results from both retrieval methods.
+        *   **(Context Assembly Update):** Modify context generation to include retrieved structured data points (e.g., meeting times, task statuses) alongside text chunks for the LLM.
+        *   **(LLM Prompt Refinement):** Update system prompts to guide the LLM on using the combined structured and unstructured context effectively.
+    *   **Dependencies/Order:** This task should ideally be implemented *before* adding new data connectors (like Google Calendar, Linear) that rely on storing and querying structured metadata, to avoid significant refactoring of those connectors later.
+    *   **Affected Files (Potential):** Database migration scripts, `lib/services/document-processor.ts`, `lib/connectors/*`, API routes (`/api/llm/test` or new retrieval route), `lib/llmRouter.ts` (or prompt generation logic).
+
+let's break down how the deployed application will work for your friend and other potential users:
+General Usage:
+Yes, once the deployment is successful and live on the Vercel URL, your friend (and anyone else with the link) can access and use the application normally.
+Notion Linking:
+Yes, your friend should be able to link their own Notion account. The /api/connectors/notion/auth/start and /callback routes handle the OAuth flow.
+Important: This requires that you have correctly configured the Notion Client ID, Notion Client Secret, and the Notion Redirect URI (which should point to your Vercel deployment's callback URL, e.g., https://<your-deployment-url>.vercel.app/api/connectors/notion/auth/callback) as environment variables in your Vercel project settings for the production deployment. Without these, the Notion connection will fail in production.
+Adding Files:
+Yes, authenticated users (after signing up/logging in) should be able to upload files. This functionality relies on your Supabase project for storage and database records.
+Important: This requires that your Supabase Project URL and Supabase Anon Key are correctly set as environment variables in your Vercel project settings for production.
+Supabase Accounts:
+No, your friend or other users do not need their own Supabase developer accounts. They will sign up for an account within your application. Your application uses your single Supabase project in the background to manage all user authentication and data.
+Google Login:
+Yes, you can absolutely add Google login (and other providers like GitHub, etc.) later. Supabase Auth makes this straightforward. You would need to:
+Enable the Google provider in your Supabase project dashboard.
+Add the Google Client ID and Secret provided by Google Cloud Console to your Supabase Auth settings.
+Update your application's frontend login UI (`components/auth/AuthForm.tsx` likely) to include a "Login with Google" button that triggers the Supabase Google OAuth flow.
+Friend's Configuration (API Keys, etc.):
+Supabase/Notion Keys: Your friend, as an end-user, does not need to configure any Supabase or Notion API keys. Those are backend configurations you manage via Vercel environment variables.
+Gemini API Key: This is the key point. Based on the likely setup (using routes like /api/llm/stream-proxy), your application's backend is probably using a single GOOGLE_GENERATIVE_AI_API_KEY that you provide via Vercel environment variables.
+Conclusion: Your friend does not need their own Gemini API key to use the LLM features of the deployed application as it is currently built. The application will use your key configured on the backend via the Vercel environment variable.
+Implication: All Gemini API usage generated by any user (your friend included) will count against your API key quota and potential billing.
+Future: If you wanted users to use their own Gemini keys, you would need to build features for users to securely input and save their key within the app, and modify the backend/API calls to use the specific user's key instead of the single server-side key.
+In Summary: If you correctly set up the required SUPABASE_URL, SUPABASE_ANON_KEY, NOTION_CLIENT_ID, NOTION_CLIENT_SECRET, NOTION_REDIRECT_URI, and GOOGLE_GENERATIVE_AI_API_KEY as environment variables in your Vercel production deployment settings, your friend should be able to sign up, log in, connect Notion, upload files, and use the Gemini features without needing to configure any keys themselves.

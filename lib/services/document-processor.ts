@@ -68,7 +68,21 @@ export interface ProcessDocumentArgs {
   sourceId?: string | null; // Original ID from external source (e.g., Notion page ID)
   sourceType?: ConnectorType | string | null; // Source type (e.g., 'notion', 'file_upload')
   rawContent?: string | null; // Raw text content if already extracted
-  metadata?: Record<string, any> | null; // Additional metadata
+  
+  // Structured Metadata is now expected within the main metadata object
+  // event_start_time?: string | Date | null; 
+  // event_end_time?: string | Date | null;
+  // due_date?: string | Date | null;
+  // content_status?: string | null; // Renamed from status
+  // priority?: string | null;
+  // participants?: string[] | null;
+  // location?: string | null;
+  
+  // Generic metadata + source timestamps still supported
+  metadata?: Record<string, any> | null; // Should contain structured data under 'structured' key if applicable
+  createdTime?: string | Date | null; // Source creation time (e.g., Notion property)
+  lastEditedTime?: string | Date | null; // Source last edited time (e.g., Notion property)
+  
   processingOptions?: DocumentProcessingOptions | null; // Override default chunking/embedding options
 }
 
@@ -110,7 +124,12 @@ export class DocumentProcessor {
   async processDocument(
     args: ProcessDocumentArgs
   ): Promise<DocumentProcessingResult> {
-    const { userId, fileName, filePath, fileType, fileId, sourceId, sourceType, rawContent, metadata, processingOptions: optionOverrides } = args;
+    const { 
+      userId, fileName, filePath, fileType, fileId, sourceId, sourceType, rawContent, 
+      metadata: providedMetadata, // Still needed for structured data and other metadata
+      createdTime, lastEditedTime, 
+      processingOptions: optionOverrides 
+    } = args;
 
     // --- Argument Validation --- 
     if (!rawContent && (!filePath || !fileType)) {
@@ -128,10 +147,38 @@ export class DocumentProcessor {
     // --- Create Document Record FIRST --- 
     console.log(`[DocumentProcessor] Creating document record for: ${fileName}`);
     
-    // Extract timestamps from metadata if they exist
-    const sourceCreatedAt = metadata?.createdTime ? new Date(metadata.createdTime).toISOString() : null;
-    const sourceUpdatedAt = metadata?.lastEditedTime ? new Date(metadata.lastEditedTime).toISOString() : null;
+    // Helper function to safely convert date strings/objects to ISO strings or null
+    const formatTimestamp = (dateInput: string | Date | null | undefined): string | null => {
+      if (!dateInput) return null;
+      try {
+        return new Date(dateInput).toISOString();
+      } catch (e) {
+        console.warn(`[DocumentProcessor] Could not parse date: ${dateInput}`, e);
+        return null;
+      }
+    };
+
+    // Extract timestamps - use specific args first, fallback to metadata keys
+    const sourceCreatedAt = formatTimestamp(createdTime || providedMetadata?.createdTime);
+    const sourceUpdatedAt = formatTimestamp(lastEditedTime || providedMetadata?.lastEditedTime);
     
+    // --- Extract Structured Metadata (now explicitly from providedMetadata.structured) --- 
+    const structuredData = providedMetadata?.structured || {}; 
+    const final_event_start_time = formatTimestamp(structuredData.event_start_time); // Removed fallback
+    const final_event_end_time = formatTimestamp(structuredData.event_end_time);
+    const final_due_date = formatTimestamp(structuredData.due_date);
+    const final_content_status = structuredData.content_status; // String or null
+    const final_priority = structuredData.priority; // String or null
+    const final_participants = structuredData.participants; // string[] or null
+    const final_location = structuredData.location; // String or null
+
+    // --- Prepare metadata for JSONB --- 
+    // Exclude keys handled by dedicated columns or timestamps
+    const jsonbMetadata = { ...(providedMetadata || {}) };
+    delete jsonbMetadata.createdTime; 
+    delete jsonbMetadata.lastEditedTime; 
+    delete jsonbMetadata.structured; // Also remove the nested structured data object itself
+
     const insertResult = await this.supabase
       .from('documents')
       .insert({
@@ -139,15 +186,28 @@ export class DocumentProcessor {
         file_path: filePath, // Can be null if rawContent is provided
         file_type: fileType, // Can be null if rawContent is provided
         user_id: userId,
-        status: 'processing' as DocumentStatus,
+        status: 'processing' as DocumentStatus, // Initial status
         source_type: sourceType, // Store source type
         source_id: sourceId, // Store external source ID
+        
+        // Timestamps from specific args or metadata fallback
         source_created_at: sourceCreatedAt,
         source_updated_at: sourceUpdatedAt,
+        
+        // New Structured Metadata Columns (using extracted values)
+        event_start_time: final_event_start_time,
+        event_end_time: final_event_end_time,
+        due_date: final_due_date,
+        content_status: final_content_status,
+        priority: final_priority, 
+        participants: final_participants, 
+        location: final_location, 
+
+        // Remaining metadata into JSONB
         metadata: {
           originalFileId: fileId, // Store original file ID if applicable
           processingStarted: new Date().toISOString(),
-          ...(metadata || {}) // Merge provided metadata (includes original timestamps too)
+          ...(jsonbMetadata) // Merge only the remaining provided metadata
         },
       })
       .select()

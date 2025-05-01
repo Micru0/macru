@@ -28,12 +28,29 @@ export class VectorSearchError extends Error {
 }
 
 /**
+ * Structure for structured metadata filters
+ */
+interface StructuredFilters {
+  event_start_time_before?: string | Date;
+  event_start_time_after?: string | Date;
+  event_end_time_before?: string | Date;
+  event_end_time_after?: string | Date;
+  due_date_before?: string | Date;
+  due_date_after?: string | Date;
+  content_status?: string;
+  priority?: string;
+  location?: string;
+  participants?: string[]; // Array of participant names/ids
+  source_types?: string[]; // Keep source_types filter separate
+}
+
+/**
  * Search options for vector search
  */
 export interface VectorSearchOptions {
   limit?: number;               // Maximum number of results to return
   threshold?: number;           // Minimum similarity score (0-1)
-  filters?: Record<string, any>; // Metadata filters
+  filters?: Record<string, any> & StructuredFilters; // Combine generic filters with structured ones
   userId?: string;              // User ID for filtering by ownership
   excludeDocumentIds?: string[]; // Document IDs to exclude from search
 }
@@ -90,74 +107,70 @@ export class VectorSearchService {
   }
 
   /**
-   * Search for documents similar to the query
+   * Search for documents similar to the query, applying hybrid filters
    * @param query The search query
-   * @param options Search options
+   * @param options Search options including structured filters
    * @returns Array of search results with similarity scores
    */
   async search(query: string, options: VectorSearchOptions = {}): Promise<SearchResult[]> {
     try {
       const searchOptions = { ...DEFAULT_SEARCH_OPTIONS, ...options };
-      const { limit, threshold, filters, userId } = searchOptions;
+      const { limit, threshold, filters = {}, userId } = searchOptions;
 
       // Generate an embedding for the query
       const queryEmbedding = await this.generateQueryEmbedding(query);
 
-      // Call the match_documents function
+      // Prepare parameters for the RPC function, mapping structured filters
+      const rpcParams = {
+        query_embedding: JSON.stringify(queryEmbedding),
+        match_threshold: threshold,
+        match_count: limit,
+        filter_user_id: userId, // Pass user ID directly
+        filter_source_types: filters.source_types || null, // Use source_types from filters
+        filter_event_start_time_before: filters.event_start_time_before || null,
+        filter_event_start_time_after: filters.event_start_time_after || null,
+        filter_event_end_time_before: filters.event_end_time_before || null,
+        filter_event_end_time_after: filters.event_end_time_after || null,
+        filter_due_date_before: filters.due_date_before || null,
+        filter_due_date_after: filters.due_date_after || null,
+        filter_content_status: filters.content_status || null,
+        filter_priority: filters.priority || null,
+        filter_location: filters.location || null,
+        filter_participants: filters.participants || null,
+      };
+
+      // Call the updated match_documents function
       const { data, error } = await this.supabase
-        .rpc('match_documents', {
-          query_embedding: JSON.stringify(queryEmbedding),
-          match_threshold: threshold,
-          match_count: limit
-        });
+        .rpc('match_documents', rpcParams);
 
       if (error) {
+        console.error('Error calling match_documents RPC:', error); // Log specific RPC error
         throw new VectorSearchError(`Error performing vector search: ${error.message}`, error);
       }
 
       if (!data || !Array.isArray(data)) {
+        console.log('No results returned from match_documents RPC.'); // Log if no data
         return [];
       }
 
-      // Apply additional filters
       let results = data as MatchDocumentsResult[];
+      console.log(`Initial results from match_documents RPC: ${results.length}`); // Log initial count
 
-      // Filter by user ID if provided
-      if (userId) {
-        // We need to join with documents to filter by user_id
-        // This is handled by RLS but we'll add an explicit check
-        const { data: userDocuments } = await this.supabase
-          .from('documents')
-          .select('id')
-          .eq('user_id', userId);
+      // --- Post-RPC Filtering (minimal, only what RPC can't handle easily) ---
 
-        if (userDocuments) {
-          const userDocumentIds = userDocuments.map(doc => doc.id);
-          results = results.filter(item => userDocumentIds.includes(item.document_id));
-        }
-      }
-
-      // Apply document type filter
-      if (filters?.document_type) {
-        results = results.filter(item => item.document_type === filters.document_type);
-      }
-
-      // Apply metadata filters
-      if (filters?.metadata && typeof filters.metadata === 'object') {
-        results = results.filter(item => {
-          for (const [key, value] of Object.entries(filters.metadata)) {
-            if (!item.metadata || item.metadata[key] !== value) {
-              return false;
-            }
-          }
-          return true;
-        });
-      }
-
-      // Exclude specific document IDs
+      // Exclude specific document IDs (still needed post-RPC)
       if (options.excludeDocumentIds && options.excludeDocumentIds.length > 0) {
+        const initialCount = results.length;
         results = results.filter(item => !options.excludeDocumentIds?.includes(item.document_id));
+        console.log(`Filtered ${initialCount - results.length} results based on excludeDocumentIds.`);
       }
+      
+      // --- REMOVE Redundant TypeScript filtering ---
+      // User ID filtering is now handled by filter_user_id parameter and RLS/SECURITY DEFINER
+      // Document type filtering is handled by filter_source_types parameter
+      // Other generic metadata filtering (filters.metadata) should be handled by specific structured filter parameters now.
+
+      console.log(`Final results after post-RPC filtering: ${results.length}`); // Log final count
 
       // Map the results to the SearchResult interface
       return results.map(item => ({
@@ -175,8 +188,9 @@ export class VectorSearchService {
       if (error instanceof VectorSearchError) {
         throw error;
       }
+      console.error('Unexpected error during vector search:', error); // Log unexpected errors
       throw new VectorSearchError(
-        `Vector search failed: ${(error as Error).message}`,
+        `Vector search failed unexpectedly: ${(error as Error).message}`,
         error as Error
       );
     }

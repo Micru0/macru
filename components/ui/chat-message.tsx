@@ -1,10 +1,11 @@
 "use client";
 
-import { User, Bot } from "lucide-react";
+import { User, Bot, ChevronDown, ChevronUp } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { cn } from "@/lib/utils";
+import { useState } from 'react';
 
 type Source = {
   title: string;
@@ -27,6 +28,8 @@ export function ChatMessage({
   sources,
   isLoading = false,
 }: ChatMessageProps) {
+  const [showSources, setShowSources] = useState(false);
+
   return (
     <div
       className={cn(
@@ -112,34 +115,34 @@ export function ChatMessage({
         )}
         {sources && sources.length > 0 && (
           <div className="mt-2">
-            <p className="text-xs font-medium text-muted-foreground mb-1">
-              Sources:
-            </p>
-            <div className="flex flex-col space-y-1">
-              {sources.map((source, index) => (
-                <div
-                  key={index}
-                  className="text-xs rounded bg-background p-2 border max-w-xs"
-                >
-                  <div className="font-medium">{source.title}</div>
-                  {source.content && (
-                    <div className="text-muted-foreground mt-1 line-clamp-2">
-                      {source.content}
-                    </div>
-                  )}
-                  {source.url && (
-                    <a
-                      href={source.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline mt-1 block truncate"
-                    >
-                      {source.url}
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
+            <button 
+              onClick={() => setShowSources(!showSources)}
+              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 mb-1"
+            >
+              Sources 
+              {showSources ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </button>
+            
+            {showSources && (
+              <ul className="list-disc list-inside text-xs space-y-1 pl-2">
+                {sources.map((source, index) => (
+                  <li key={index}>
+                    {source.url ? (
+                      <a
+                        href={source.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        {source.title}
+                      </a>
+                    ) : (
+                      <span>{source.title}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </div>

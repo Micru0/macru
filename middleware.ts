@@ -69,6 +69,14 @@ export async function middleware(request: NextRequest) {
   const url = request.nextUrl.clone();
   const { pathname } = url;
 
+  // --- NEW REDIRECT LOGIC ---
+  // Redirect the root path to the dashboard
+  if (pathname === '/') {
+    url.pathname = '/dashboard';
+    return NextResponse.redirect(url);
+  }
+  // --- END NEW REDIRECT LOGIC ---
+
   // Define protected routes that require authentication
   const protectedRoutes = ['/dashboard', '/profile', '/settings', '/files']; // Added other potential protected routes
   const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));

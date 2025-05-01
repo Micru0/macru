@@ -8,6 +8,7 @@ export interface SourceChunk {
   content: string; // Text content of the chunk
   similarity?: number; // Similarity score from vector search
   metadata?: Record<string, any>; // Optional metadata (e.g., page number)
+  documentType?: string; // Added document type
 }
 
 // Define the structure for a citation object (Internal use for now)
@@ -17,6 +18,7 @@ interface InternalCitation {
   documentName: string;
   chunkIndex: number;
   content: string; // Keep content for potential snippet
+  documentType?: string; // Added document type
 }
 
 // Define the structure expected by the existing ChatMessage component
@@ -53,7 +55,7 @@ export class ResponseProcessor {
       documentName: chunk.documentName || `Document ${chunk.documentId.substring(0, 8)}`, // Fallback name
       chunkIndex: chunk.chunkIndex,
       content: chunk.content,
-      // Extract more details from chunk.metadata if available later
+      documentType: chunk.documentType || chunk.metadata?.source_type || 'unknown' // Get type from chunk or metadata
     }));
 
     // Basic deduplication based on documentId and chunkIndex
@@ -63,11 +65,26 @@ export class ResponseProcessor {
     );
 
     // Map internal citations to the Source[] format expected by the frontend
-    const sources: Source[] = uniqueInternalCitations.map(citation => ({
-      title: `${citation.documentName} (Chunk ${citation.chunkIndex + 1})`, // User-friendly title
-      content: citation.content.substring(0, 100) + '...', // Show a snippet
-      // url: `/documents/${citation.documentId}?chunk=${citation.chunkIndex}` // Example future URL
-    }));
+    const sources: Source[] = uniqueInternalCitations.map(citation => {
+      // Conditionally add prefix based on document type
+      let prefix = '';
+      switch (citation.documentType) {
+        case 'notion':
+          prefix = 'Notion: ';
+          break;
+        case 'file_upload': // Assuming 'file_upload' is the type for manual uploads
+          prefix = 'File: ';
+          break;
+        // Add cases for other types like 'gmail', 'gdrive' etc. as needed
+        default:
+          prefix = ''; // No prefix for unknown or other types
+      }
+      return {
+        title: `${prefix}${citation.documentName}`, // Conditionally add prefix
+        content: citation.content.substring(0, 100) + '...', // Keep snippet for now, maybe remove later
+        // url: `/documents/${citation.documentId}?chunk=${citation.chunkIndex}` // Example future URL
+      }
+    });
 
     return {
       responseText: llmResponseText,
