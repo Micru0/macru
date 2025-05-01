@@ -61,10 +61,10 @@ export interface DocumentWithChunks extends Document {
 }
 
 /**
- * Document chunk with its embedding
+ * Represents a document chunk combined with its embedding
  */
 export interface ChunkWithEmbedding extends DocumentChunk {
-  embedding?: number[];
+  embedding?: DocumentEmbedding;
 }
 
 /**
