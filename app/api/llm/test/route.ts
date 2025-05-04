@@ -144,7 +144,7 @@ export async function POST(request: Request) {
         {
           query_embedding: queryEmbedding,
           match_threshold: 0.4, // Lowered threshold for testing
-          match_count: 5,
+          match_count: 10, // Increased from 5
           filter_user_id: userId, // Added user ID filter
           // Pass the detected source type filter, or null if none detected
           filter_source_types: filterSourceTypes 
@@ -156,18 +156,29 @@ export async function POST(request: Request) {
         throw new Error(`Database error searching chunks: ${matchError.message}`);
       }
 
-      // Map Supabase result to SourceChunk interface
+      // Map Supabase result to SourceChunk interface, including new structured fields
       const sourceChunks: SourceChunk[] = (matchData || []).map((chunk: any) => ({
-        documentId: chunk.document_id, // Ensure field names match DB function output
-        documentName: chunk.document_title || 'Unknown Document', // Use document_title from SQL function
-        chunkIndex: chunk.chunk_index, // Ensure field names match DB function output
+        documentId: chunk.document_id, 
+        documentName: chunk.document_title || 'Unknown Document', 
+        chunkIndex: chunk.chunk_index, 
         content: chunk.content,
         similarity: chunk.similarity,
-        metadata: chunk.metadata || {},
-        documentType: chunk.document_type // Added documentType mapping
+        metadata: {
+          // Merge existing chunk metadata with structured data from document
+          ...(chunk.metadata || {}),
+          // Explicitly add structured fields retrieved from the function
+          event_start_time: chunk.event_start_time, // NEW
+          event_end_time: chunk.event_end_time,     // NEW
+          due_date: chunk.due_date,                 // NEW
+          content_status: chunk.content_status,       // NEW
+          priority: chunk.priority,                 // NEW
+          location: chunk.location,                 // NEW
+          participants: chunk.participants,         // NEW
+        },
+        documentType: chunk.document_type 
       }));
       
-      retrievedChunks = sourceChunks; // Store the typed chunks
+      retrievedChunks = sourceChunks; 
       searchTime = performance.now() - searchStartTime;
       console.log(`[API Route] Found ${retrievedChunks.length} relevant chunks. Search Time: ${searchTime.toFixed(2)}ms`);
       
@@ -242,32 +253,54 @@ export async function POST(request: Request) {
 
     // --- 3. Assemble Contexts --- 
     // Include metadata with chunk content
-    const documentContext = finalChunks
-      .map(chunk => {
-          // Basic formatting for metadata
-          let metadataString = `Source Document: ${chunk.documentName} (ID: ${chunk.documentId}, Chunk: ${chunk.chunkIndex})`;
-          if (chunk.metadata) {
-              if (chunk.metadata.url) metadataString += `\nURL: ${chunk.metadata.url}`;
-              if (chunk.metadata.parentType) metadataString += `\nParent Type: ${chunk.metadata.parentType}`;
-              if (chunk.metadata.parentId) metadataString += `\nParent ID: ${chunk.metadata.parentId}`;
-              
-              // --- Add Structured Metadata --- 
-              const structured = chunk.metadata.structured as Record<string, any> | undefined;
-              if (structured) {
-                  if (structured.content_status) metadataString += `\nStatus: ${structured.content_status}`;
-                  if (structured.priority) metadataString += `\nPriority: ${structured.priority}`;
-                  if (structured.due_date) metadataString += `\nDue Date: ${new Date(structured.due_date).toLocaleDateString()}`;
-                  if (structured.event_start_time) metadataString += `\nEvent Start: ${new Date(structured.event_start_time).toLocaleString()}`;
-                  if (structured.event_end_time) metadataString += `\nEvent End: ${new Date(structured.event_end_time).toLocaleString()}`;
-                  if (structured.participants) metadataString += `\nParticipants: ${Array.isArray(structured.participants) ? structured.participants.join(', ') : structured.participants}`;
-                  if (structured.location) metadataString += `\nLocation: ${structured.location}`;
-              }
-              // --- End Add Structured Metadata --- 
+    let documentContext = '';
+    if (finalChunks.length > 0) {
+      documentContext += '\\n== CONTEXT DOCUMENTS ==\\n';
+      finalChunks.forEach((chunk, index) => {
+        // Add clear delimiters for each chunk
+        documentContext += `\\n-- Document Chunk ${index + 1} Start --\\n`;
+        documentContext += `DOCUMENT_ID: ${chunk.documentId}\\n`;
+        documentContext += `DOCUMENT_NAME: ${chunk.documentName}\\n`;
+        documentContext += `SOURCE_TYPE: ${chunk.documentType || 'unknown'}\\n`; // Include source type
+
+        // Add structured metadata if available
+        if (chunk.metadata) {
+          documentContext += '[Metadata Start]\\n';
+          documentContext += `  Chunk Index: ${chunk.metadata.chunkIndex}\\n`;
+          if (chunk.metadata.event_start_time) {
+            documentContext += `  Event Start: ${new Date(chunk.metadata.event_start_time).toLocaleString()}\\n`;
           }
-          return `--- Chunk Start ---\n[Metadata]\n${metadataString}\n\n[Content]\n${chunk.content}\n--- Chunk End ---`;
-      })
-      .join("\n\n"); // Separate chunks clearly
-      
+          if (chunk.metadata.event_end_time) {
+            documentContext += `  Event End: ${new Date(chunk.metadata.event_end_time).toLocaleString()}\\n`;
+          }
+          if (chunk.metadata.due_date) {
+            documentContext += `  Due Date: ${new Date(chunk.metadata.due_date).toLocaleString()}\\n`;
+          }
+          if (chunk.metadata.content_status) {
+            documentContext += `  Status: ${chunk.metadata.content_status}\\n`;
+          }
+          if (chunk.metadata.priority) {
+            documentContext += `  Priority: ${chunk.metadata.priority}\\n`;
+          }
+           if (chunk.metadata.location) {
+            documentContext += `  Location: ${chunk.metadata.location}\\n`;
+          }
+           if (chunk.metadata.participants && chunk.metadata.participants.length > 0) {
+            documentContext += `  Participants: ${chunk.metadata.participants.join(', ')}\\n`;
+          }
+          // Add other relevant structured metadata fields here
+          documentContext += '[Metadata End]\\n';
+        }
+
+        // Add content
+        documentContext += '[Content Start]\\n';
+        documentContext += `${chunk.content}\\n`;
+        documentContext += '[Content End]\\n';
+
+        documentContext += `-- Document Chunk ${index + 1} End --\\n`;
+      });
+    }
+    
     const memoryContext = retrievedMemories
       .map(mem => `[Memory: ${mem.type} - ${new Date(mem.created_at).toLocaleDateString()}] ${mem.content}`)
       .join("\n\n"); 
@@ -290,7 +323,9 @@ export async function POST(request: Request) {
       query, 
       history, 
       documentContext, // Pass document context
-      memoryContext   // Pass memory context
+      memoryContext,   // Pass memory context
+      process.env.ENABLE_MEMORY_LAYER === 'true',
+      [] // Pass empty tools array
     );
     // Optional: Log final prompt (can be long)
     // console.log("[API Route] Final prompt:", formattedPrompt);
@@ -304,7 +339,7 @@ export async function POST(request: Request) {
     llmTime = performance.now() - llmStartTime;
 
     // --- Log Raw LLM Response --- 
-    console.log("[API Route] Raw LLM Response Text:", llmResponse.text);
+    console.log(`[API Route] Raw LLM Response Text: ${llmResponse.text}`); // Log raw response
     // --- End Log --- 
 
     // --- Handle potential Action Request --- 
@@ -336,98 +371,53 @@ export async function POST(request: Request) {
         throw new Error("LLM response contained neither text nor an action request.");
     }
 
-    // --- 6. Process Response and Add Citations --- 
+    // --- 4. Process Response & Extract Sources --- 
     const processingStartTime = performance.now();
+    let identifiedSources: SourceChunk[] = [];
+    let processedText = llmResponse.text || ''; // Use empty string if text is null/undefined
+
+    const sourceLineMatch = processedText.match(/\nPrimary Sources: (.*)/);
+
+    if (sourceLineMatch && sourceLineMatch[1].trim().toLowerCase() !== 'none') {
+      const llmSourceIds = sourceLineMatch[1].split(',').map(id => id.trim()).filter(id => id);
+      console.log(`[API Route Sources] LLM identified primary sources: [${llmSourceIds.join(', ')}]`);
+
+      // Filter retrievedChunks to match LLM provided IDs
+      identifiedSources = retrievedChunks.filter(chunk => 
+        llmSourceIds.some(llmId => chunk.documentId.startsWith(llmId)) // Use startsWith for potential truncation
+      );
+      
+      // Deduplicate based on documentId to avoid showing multiple chunks from the same doc unless necessary
+      const uniqueSourceIds = new Set<string>();
+      identifiedSources = identifiedSources.filter(source => {
+        if (!uniqueSourceIds.has(source.documentId)) {
+          uniqueSourceIds.add(source.documentId);
+          return true;
+        }
+        return false;
+      });
+      
+      console.log(`[API Route Sources] Using sources provided by LLM: ${identifiedSources.length} unique sources.`);
+
+      // Remove the source line from the response text shown to the user
+      processedText = processedText.replace(/\nPrimary Sources: .*/, '').trim();
+    } else {
+      // Fallback: LLM didn't provide sources or said None
+      console.log("[API Route Sources] LLM did not provide explicit primary sources or indicated None.");
+      // **NEW BEHAVIOR**: Return empty sources list in this case
+      identifiedSources = []; 
+    }
+
+    const processingEndTime = performance.now();
+    const processingTime = (processingEndTime - processingStartTime).toFixed(2);
+
+    // --- 6. Process Response and Add Citations --- 
     const responseProcessor = new ResponseProcessor();
     const processedResponse: ProcessedResponse = responseProcessor.processResponse(
-      llmResponse.text, // Pass the raw LLM text
-      finalChunks // Use the potentially filtered chunks for citation
+      processedText, // Pass the cleaned processed text
+      identifiedSources // Use the identified sources for citation
     );
-    processingTime = performance.now() - processingStartTime;
     
-    // --- Parse LLM response for explicit source IDs ---
-    let llmAnswerText = processedResponse.responseText; // Start with the processed text
-    let primarySourceIds: string[] | null = null;
-    const sourceLineMatch = llmAnswerText.match(/^Primary Sources:\s*(.*)$/m); // Multiline match
-
-    if (sourceLineMatch && sourceLineMatch[1]) {
-        primarySourceIds = sourceLineMatch[1].split(',').map(id => id.trim()).filter(id => id);
-        // Remove the source line from the text sent to the UI
-        llmAnswerText = llmAnswerText.replace(/^Primary Sources:.*$/m, '').trim();
-        console.log(`[API Route Sources] LLM identified primary sources: [${primarySourceIds.join(', ')}]`);
-    } else {
-        console.log("[API Route Sources] LLM did not provide explicit primary sources.");
-    }
-
-    // --- Construct final sources for the UI dropdown (Using LLM or Heuristic) ---
-    let finalSources: Source[] = [];
-    const similarityThresholdGap = 0.05; // Keep threshold for fallback
-
-    // Use the CLEANED specificTitle here as well
-    if (specificTitle) { 
-      // Case 1: Query targeted a specific document title (Highest Priority)
-      const uniqueDocs = new Map<string, SourceChunk>();
-      finalChunks.forEach(chunk => { 
-        if (chunk.documentName?.toLowerCase() === specificTitle?.toLowerCase()) {
-          if (!uniqueDocs.has(chunk.documentId)) {
-            uniqueDocs.set(chunk.documentId, chunk);
-          }
-        }
-      });
-      finalSources = Array.from(uniqueDocs.values()).map(chunk => ({
-         title: `${chunk.documentType === 'notion' ? 'Notion: ' : chunk.documentType === 'file_upload' ? 'File: ' : ''}${chunk.documentName}`,
-      }));
-      console.log(`[API Route Sources] Specific doc query. Showing ${finalSources.length} source(s) matching title.`);
-
-    } else if (primarySourceIds) {
-        // Case 2: General query & LLM provided source IDs
-        const sourceIdSet = new Set(primarySourceIds);
-        const uniqueDocs = new Map<string, SourceChunk>();
-        // Iterate through the *original context chunks* to find matches for the IDs
-        finalChunks.forEach(chunk => { 
-            // More robust check: See if any ID in the set is a prefix of the chunk's documentId
-            const matchFound = primarySourceIds.some(llmId => chunk.documentId.startsWith(llmId));
-            if (matchFound && !uniqueDocs.has(chunk.documentId)) {
-                uniqueDocs.set(chunk.documentId, chunk);
-            }
-        });
-        finalSources = Array.from(uniqueDocs.values()).map(chunk => ({
-            title: `${chunk.documentType === 'notion' ? 'Notion: ' : chunk.documentType === 'file_upload' ? 'File: ' : ''}${chunk.documentName}`,
-        }));
-        console.log(`[API Route Sources] Using sources provided by LLM: ${finalSources.length} unique sources.`);
-
-    } else if (finalChunks.length === 1) {
-        // Case 3 (Fallback): Only one chunk retrieved - show that source
-        const topChunk = finalChunks[0];
-        finalSources = [{
-          title: `${topChunk.documentType === 'notion' ? 'Notion: ' : topChunk.documentType === 'file_upload' ? 'File: ' : ''}${topChunk.documentName}`,
-        }];
-        console.log(`[API Route Sources] Fallback: Only 1 chunk retrieved. Showing 1 source.`);
-        
-    } else if (finalChunks.length > 1 && 
-               (finalChunks[0].similarity || 0) - (finalChunks[1].similarity || 0) > similarityThresholdGap) {
-      // Case 4 (Fallback): General query, significant similarity gap
-      const topChunk = finalChunks[0];
-      finalSources = [{
-        title: `${topChunk.documentType === 'notion' ? 'Notion: ' : topChunk.documentType === 'file_upload' ? 'File: ' : ''}${topChunk.documentName}`,
-      }];
-      console.log(`[API Route Sources] Fallback: General query with significant similarity gap. Showing top 1 source.`);
-
-    } else if (finalChunks.length > 0) {
-      // Case 5 (Fallback): General query, multiple close sources or LLM didn't provide IDs
-      const uniqueDocs = new Map<string, SourceChunk>();
-      finalChunks.forEach(chunk => {
-        if (!uniqueDocs.has(chunk.documentId)) {
-          uniqueDocs.set(chunk.documentId, chunk);
-        }
-      });
-      finalSources = Array.from(uniqueDocs.values()).map(chunk => ({
-         title: `${chunk.documentType === 'notion' ? 'Notion: ' : chunk.documentType === 'file_upload' ? 'File: ' : ''}${chunk.documentName}`,
-      }));
-      console.log(`[API Route Sources] Fallback: General query with multiple close sources or no LLM sources provided. Showing ${finalSources.length} sources.`);
-    }
-    // --- End Construct final sources ---
-
     // --- 7. Cache Store ---
     queryCache.set(cacheKey, processedResponse);
     // --- End Cache Store ---
@@ -435,13 +425,13 @@ export async function POST(request: Request) {
     const endTime = performance.now();
     const totalTime = endTime - startTime;
     // Update log to remove autoMemTime
-    console.log(`[API Route - Success] Total Time: ${totalTime.toFixed(2)}ms (Embed: ${embeddingTime.toFixed(2)}ms, Search: ${searchTime.toFixed(2)}ms, Memory: ${memoryTime.toFixed(2)}ms, LLM: ${llmTime.toFixed(2)}ms, Process: ${processingTime.toFixed(2)}ms)`);
+    console.log(`[API Route - Success] Total Time: ${totalTime.toFixed(2)}ms (Embed: ${embeddingTime.toFixed(2)}ms, Search: ${searchTime.toFixed(2)}ms, Memory: ${memoryTime.toFixed(2)}ms, LLM: ${llmTime.toFixed(2)}ms, Process: ${processingTime}ms)`);
 
     // Use the potentially modified response object
     response = NextResponse.json({
        response: { 
-         responseText: llmAnswerText, // Use the cleaned answer text
-         sources: finalSources 
+         responseText: processedText, // Use the cleaned processed text
+         sources: identifiedSources 
        } 
      });
     // TODO: Manually copy cookies if necessary
@@ -455,66 +445,55 @@ export async function POST(request: Request) {
   }
 }
 
-// Updated function to include both document and memory context AND request source IDs
-function formatPromptWithHistoryAndContext(
-  query: string, 
+// Helper function to format the prompt with history and context
+const formatPromptWithHistoryAndContext = (
+  query: string,
   history: HistoryItem[],
   documentContext: string,
-  memoryContext: string // Added memory context
-): string {
-  const formattedHistory = history.length > 0 
-    ? history.map(item => {
-        const role = item.role === 'user' ? 'User' : 'Assistant';
-        return `${role}: ${item.content}`;
-      }).join('\n\n') + '\n\n' 
-    : '';
+  memoryContext: string,
+  enableMemory: boolean,
+  tools: any[] // Added tools parameter
+): string => {
+  let formattedHistory = history
+    .map(item => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.content}`)
+    .join('\n');
 
-  const docContextSection = documentContext.trim().length > 0
-    ? `## Relevant Document Context:\n${documentContext}\n\n` // Use Markdown heading
-    : '';
+  let prompt = `You are Macru, a helpful AI assistant interacting with a user based *only* on the provided CONTEXT (documents and memory) and conversation HISTORY. Your goal is to answer the user's query accurately and concisely.
 
-  const memContextSection = memoryContext.trim().length > 0
-    ? `## Relevant Personal Memory Context:\n${memoryContext}\n\n` // Use Markdown heading
-    : '';
+== AVAILABLE TOOLS ==
+${tools.length > 0 ? JSON.stringify(tools, null, 2) : 'None'}
 
-  // More general but clear instructions + Source ID request
-  return (
-    `You are a helpful and professional assistant. Respond concisely using clear Markdown formatting. `
-    + `Use the provided context (documents with metadata, memory) to answer the user's query accurately. `
-    + `Each document chunk in the context includes metadata like 'Source Document: [Name] (ID: [documentId], Chunk: [index])'. `
-    + `Pay close attention to any structured metadata provided within the [Metadata] block of each chunk, such as Status, Priority, Due Date, Event Start/End Times, Participants, or Location. Use this information when relevant to the query.
+== CONVERSATION HISTORY ==
+${formattedHistory}
 
-`
-    + `== Primary Task Determination ==
-`
-    + `1. IF the user query asks for a LIST or SUMMARY of items OR asks about information likely contained in structured metadata (e.g., 'List my Notion documents', 'What is the status of X?', 'Show tasks due today', 'Summarize my files'), your primary task is SYNTHESIS. Synthesize the information from ALL relevant context chunks provided, utilizing both the text content and the structured metadata fields. Your answer should reflect the full scope of the relevant context provided.
-`
-    + `2. ELSE IF the query refers to a SPECIFIC document or topic mentioned in the context (e.g., 'What is document X about?', 'Details on the Y meeting'), your primary task is FOCUSED EXTRACTION. Structure your response logically around that specific topic using headings and summaries as appropriate, incorporating relevant structured metadata found in the context for that document/topic.
-`
-    + `3. ELSE (for general questions not covered above), your primary task is GENERAL QA. Synthesize information from the most relevant context sources professionally, including structured metadata if pertinent.
+== CONTEXT DOCUMENTS ==
+${documentContext || 'No relevant documents found in context.'}
+`;
 
-`
-    + `== Response Formatting ==
-`
-    + `Regardless of the task, DO NOT include inline source citations (like \"Source Document: ...\") directly in your main response text. Source attribution will be handled separately.
-`
-    + `If the context does not contain the answer for the *determined primary task*, state that clearly. Do not invent information.
+  if (enableMemory) {
+    prompt += `\n== MEMORY CONTEXT ==
+${memoryContext || 'No relevant memories found in context.'}\n`;
+  }
 
-`
-    // --- ADDED INSTRUCTION FOR SOURCE IDs ---
-    + `== Source Attribution ==
-`
-    + `After providing your complete answer based on the determined task, add a new line starting EXACTLY with 'Primary Sources:' followed by a comma-separated list of the document IDs (e.g., 'abc-123, def-456') corresponding to the document(s) you used to formulate the answer. `
-    + `IMPORTANT: For SYNTHESIS tasks (summaries/lists), you MUST include ALL the unique document IDs from the context you used to create that list or summary in the 'Primary Sources:' line. For example, if context contained chunks from documents 'doc-A', 'doc-B', and 'doc-C', and you summarized all three, the line must be 'Primary Sources: doc-A, doc-B, doc-C'. Do not omit any used IDs. For FOCUSED EXTRACTION or GENERAL QA tasks, list only the essential ID(s) used.
+  prompt += `\n== CURRENT QUERY ==
+User: ${query}
 
-` 
-    // --- END ADDED INSTRUCTION ---
-    + `== Provided Context and Query ==
-`
-    + `${formattedHistory}${memContextSection}${docContextSection}`
-    + `User: ${query}
+== INSTRUCTIONS ==
+1.  **Analyze Query:** Understand the user's latest query in the context of the conversation history.
+2.  **Consult Context:** Search the CONTEXT DOCUMENTS and MEMORY CONTEXT for relevant information. Prioritize information from CONTEXT DOCUMENTS.
+3.  **Tool Use:** If the query clearly asks for an action that matches an AVAILABLE TOOL (e.g., "schedule a meeting"), formulate the correct function call.
+4.  **Synthesize Answer:** Generate an answer based *strictly* on the relevant information found in the context and history. DO NOT use external knowledge or make assumptions.
+5.  **Conciseness:** Keep your initial answer concise. For queries like "remind me about X" or "what is X?", provide a brief 1-2 sentence summary highlighting the key points. You can offer to provide more details if the user asks for them.
+6.  **Formatting:** Structure your answer clearly using Markdown for readability, even for brief summaries.
+    *   Use headings (like ## Heading) for main topics *if providing more detail*.
+    *   Use bullet points (like - Point 1) or numbered lists (like 1. Step 1) for details, steps, features, or benefits *when appropriate for clarity*.
+    *   Use bold text (like **important term**) for emphasis.
+7.  **"Not Found" Handling:** If the user asks about a specific document, person, or topic that is NOT explicitly mentioned or identifiable within the provided CONTEXT DOCUMENTS or MEMORY CONTEXT, state clearly that the information is not available *in the provided context*. Do not guess or apologize.
+8.  **Follow-up Handling:** If the user asks about information seemingly missing from a *previous* answer (e.g., "What about X?", "Why didn't you mention Y?"), re-scan the *current* CONTEXT DOCUMENTS carefully for any mention of that specific item (X or Y). If found, provide the information concisely using clear Markdown formatting. If still not found in the current context, reiterate that it's not available in the provided context.
+9.  **Source Attribution:** IMMEDIATELY AFTER your main response text, add a new line starting EXACTLY with "Primary Sources:" followed by a comma-separated list of the DOCUMENT_ID(s) from the CONTEXT DOCUMENTS that you directly used to formulate the answer. Cite ALL relevant sources accurately. If the answer was general, came only from memory, or if you stated information wasn't found, use "Primary Sources: None".
 
-`
-    + `Assistant:`
-  );
-} 
+Assistant:
+`;
+
+  return prompt;
+}; 
