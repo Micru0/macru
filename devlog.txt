@@ -892,3 +892,154 @@ Each entry follows this format:
   - Refine the property mapping logic in `lib/connectors/notion.ts` (and future connectors) to be more robust or configurable.
   - Add UI indicators for which documents have successfully populated structured metadata.
   - Implement the actual hybrid query logic in Task 15.3.
+
+## Dev Log Entry: Google Calendar Connector Implementation & Debugging
+
+**Objective:** Implement Task #11 - Google Calendar Data Connector.
+
+**Process & Key Steps:**
+
+1.  **Initialization:**
+    *   Installed `googleapis` library (`npm install googleapis`).
+    *   Defined required environment variables: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`. User confirmed setting these up, including both localhost and Vercel deployment URIs in Google Cloud Console.
+    *   Created the base connector class file: `lib/connectors/google-calendar.ts`.
+
+2.  **OAuth Flow Implementation:**
+    *   Created the OAuth start route: `app/api/connectors/google-calendar/auth/start/route.ts`. This route generates the Google consent screen URL.
+    *   Used Context7 (`/googleapis/google-api-nodejs-client`) to get documentation for OAuth callback handling.
+    *   Created the OAuth callback route: `app/api/connectors/google-calendar/auth/callback/route.ts`. This route handles the redirect from Google, exchanges the authorization code for tokens, and saves tokens to the `connector_tokens` table in Supabase using `saveGoogleToken` helper.
+
+3.  **Status & UI:**
+    *   Created the status check route: `app/api/connectors/google-calendar/status/route.ts`. This route checks if valid tokens exist for the current user using `getGoogleToken` helper.
+    *   Integrated Google Calendar connection UI into the settings page (`app/dashboard/settings/page.tsx`) under a "Connections" tab, allowing users to initiate the connection and view the status.
+
+**Issues Encountered & Debugging:**
+
+1.  **Google Verification Error (`403: access_denied`):**
+    *   **Symptom:** User encountered an error page from Google after attempting to authorize the connection.
+    *   **Cause:** Standard Google security for unverified apps requesting sensitive scopes. The app needs to be either verified by Google (production) or test users must be explicitly added in the Google Cloud Console OAuth Consent Screen settings (development).
+    *   **Resolution:** Advised user to add their email (`mshairy@gmail.com`) as a test user in Google Cloud Console.
+
+2.  **Connection Status Not Updating in UI:**
+    *   **Symptom:** After completing the Google auth flow, the UI button still showed "Connect" instead of "Disconnect" or indicating a connected state.
+    *   **Debugging:** Added extensive `console.log` statements to the callback route (`.../auth/callback/route.ts`) to trace the execution flow, token exchange, user retrieval, and token saving steps. The logs showed the callback route was hit, but the UI wasn't reflecting the change, suggesting issues possibly in token saving, status retrieval, or UI state updates.
+
+3.  **Terminal Spam (`Error: Route ... used cookies().get(...) ... cookies() should be awaited`):**
+    *   **Symptom:** Continuous error messages flooding the terminal regarding `cookies()` needing to be awaited.
+    *   **Cause Investigation:**
+        *   **Initial Thought:** Problem in the callback route (`.../auth/callback/route.ts`) due to missing `await` there. Added `await` there. **Error persisted.**
+        *   **Second Thought:** Problem in the status route (`.../status/route.ts`) being called repeatedly by the UI, which *also* used the same problematic shared `getSupabaseServerClient` helper function without awaiting `cookies()` internally. Refactored the status route to initialize the Supabase client directly within its `GET` handler. **Error persisted.**
+        *   **Root Cause Identified:** The error originated from the *shared* `getSupabaseServerClient` helper function called *internally* by the `GoogleCalendarConnector` class in `lib/connectors/google-calendar.ts` (specifically within `getGoogleToken`, `saveGoogleToken`, `deleteGoogleToken`). The `cookies().get()` call *inside the Supabase client configuration* within that helper was the culprit.
+    *   **Resolution:** Refactored `lib/connectors/google-calendar.ts` to remove the shared helper function and initialize the Supabase client (correctly awaiting `cookies()` before passing the store) directly within `saveGoogleToken`, `getGoogleToken`, and `deleteGoogleToken`. This eliminated the source of the spam.
+
+4.  **Linter/Type Errors during Refactoring:**
+    *   **Symptom:** After refactoring `lib/connectors/google-calendar.ts` to fix the cookies spam, numerous TypeScript errors appeared.
+    *   **Causes & Resolutions:**
+        *   **Interface Mismatch:** The `GoogleCalendarConnector` methods (`connect`, `disconnect`, `getConnectionStatus`, `fetchData`) did not match the signatures defined in the `DataConnector` interface (`lib/types/data-connector.ts`). Fixed by adjusting parameters and return types.
+        *   **Incorrect `ConnectionStatus` Type:** Returned objects using `{ status: '...' }` instead of the actual interface properties (`{ connectorType: ..., isConnected: ..., error: ... }`). Read the type definition and corrected the return objects.
+        *   **Missing `raw_response` Column:** Attempted to select and use `raw_response` (for decoding user email from ID token) which wasn't in the `connector_tokens` table schema.
+
+5.  **Supabase Migration Failure:**
+    *   **Symptom:** Attempted to run `supabase migration new add_raw_response_to_connector_tokens` to add the missing column, but the command failed.
+    *   **Cause:** `supabase` CLI command not found in the user's environment PATH.
+    *   **Resolution:** Advised user to install Supabase CLI globally or locally. User confirmed they manually added the required SQL (`ALTER TABLE public.connector_tokens ADD COLUMN raw_response jsonb;`) via the Supabase Studio/UI. **Note:** This manual change means the project's migration files are now out of sync with the actual database schema. Running `supabase db reset` locally would likely fail or revert this change.
+
+**Current Status:**
+
+*   The Google Calendar connector base structure, OAuth flow routes, status route, and UI integration are in place.
+*   The persistent terminal spam related to `cookies()` should be resolved by the refactoring in `lib/connectors/google-calendar.ts`.
+*   Linter errors related to type mismatches and the `raw_response` column access *should* be resolved (pending confirmation after the database schema change).
+*   The connection flow likely still needs end-to-end testing to confirm tokens are saved correctly and the UI updates state properly after the callback and subsequent status checks.
+*   The database migration state is inconsistent due to manual schema changes.
+
+**Next Steps (Recommended for next session):**
+
+1.  Verify the terminal spam is gone.
+2.  Test the end-to-end Google Calendar connection flow locally.
+3.  Debug any remaining issues with UI state updates or token handling.
+4.  Ensure the `raw_response` column exists and the related code functions correctly.
+5.  Consider generating Supabase types (`supabase gen types typescript --local > lib/types/database.types.ts`) to update type definitions after schema changes.
+6.  Address the database migration inconsistency (e.g., pull schema changes into a migration file: `supabase db diff --file supabase/migrations/<timestamp>_add_raw_response_manually.sql`).
+
+## Dev Log Entry: Google Calendar Connector Debugging Session 2
+
+**Objective:** Resolve issues preventing Google Calendar connection status from updating correctly and fix related errors.
+
+**Process & Key Steps:**
+
+1.  **Initial State:** Recall logs showed `getConnectionStatus() called for user undefined` and the UI didn't reflect a connected state despite completing the OAuth flow.
+2.  **Fix `userId` Passing:** Identified that the status API route (`.../status/route.ts`) was calling `connector.getConnectionStatus()` without passing the required `userId`. Modified the API route to pass `user.id` to the method call.
+3.  **Trace Callback Flow:** Added detailed `console.log` statements to the callback route (`.../auth/callback/route.ts`) to diagnose why tokens weren't being saved.
+4.  **Fix `expiry_date` Column Error:** Logs revealed the callback failed during token saving (`saveGoogleToken`) because the `expiry_date` column was missing from the `connector_tokens` table schema.
+    *   **Action:** User manually added the column (`ALTER TABLE public.connector_tokens ADD COLUMN expiry_date TIMESTAMPTZ NULL;`) via Supabase Studio SQL Editor, as the previous attempt to use migrations failed due to local environment/Docker issues (which were subsequently reverted as user confirmed direct DB interaction workflow).
+5.  **Fix `scopes` Array Format Error:** After fixing the `expiry_date`, the callback failed again with a `malformed array literal` error for the `scopes` column.
+    *   **Cause:** The database expected a `text[]` array, but Google returns scopes as a space-separated string.
+    *   **Action:** Modified `saveGoogleToken` in the callback route to split the `tokens.scope` string into an array (`tokens.scope.split(' ')`) before upserting.
+6.  **Add `openid` and `email` Scopes:** To enable fetching the user's email for display:
+    *   Added `'openid'` and `'email'` to the `SCOPES` array in the auth start route (`.../auth/start/route.ts`).
+    *   Updated `getConnectionStatus` in `lib/connectors/google-calendar.ts` to safely decode the `id_token` (retrieved via `raw_response`) and extract the email. Required adding type checks for `raw_response.id_token`.
+7.  **Create Missing `disconnect` Route:** Discovered the disconnect button failed because the backend API route (`/api/connectors/google-calendar/disconnect`) didn't exist.
+    *   **Action:** Created `app/api/connectors/google-calendar/disconnect/route.ts` to handle `POST` requests, authenticate the user, and call `connector.disconnect(userId)`.
+8.  **UI Layout Fixes:**
+    *   Refactored the Google Calendar section in `app/dashboard/settings/page.tsx` to use the same `div` structure as the Notion section for visual consistency, replacing the nested `Card`.
+    *   Adjusted flexbox alignment (`items-start`) to correctly align the title and the disconnect button vertically.
+
+**Current Status:**
+
+*   Google Calendar **authentication flow (Connect/Disconnect) is fully functional**.
+*   Connection status is correctly detected and **displayed in the UI**, including the connected user's email address.
+*   Layout inconsistencies in the settings UI have been resolved.
+*   The **`fetchData` method remains unimplemented**. The connector cannot yet retrieve actual calendar data.
+
+**Next Steps (Recommended):**
+
+1.  Implement the `fetchData` method in `lib/connectors/google-calendar.ts`.
+2.  Add a "Sync Now" button or other trigger mechanism for Google Calendar.
+3.  Integrate the fetched calendar data into the main ingestion pipeline.
+
+## Dev Log Entry: Include Structured Data in LLM Context
+
+**Objective:** Ensure LLM can answer questions requiring structured data (like event times) by including it in the context.
+
+**Problem:** LLM queries like "When is my next meeting?" failed because only the text content of relevant chunks was included in the prompt, not the structured `event_start_time` or `event_end_time` stored in the `documents` table.
+
+**Solution:**
+
+1.  **Review Migrations:** Confirmed via user-provided migrations (`...add_structured_metadata_to_documents.sql`, `...update_match_documents_for_hybrid.sql`) that structured columns exist and the `match_documents` function already performs necessary JOINs but didn't return the structured columns.
+2.  **Update `match_documents` Function:**
+    *   Identified that `CREATE OR REPLACE FUNCTION` cannot change the return type.
+    *   Provided a corrected SQL script including `DROP FUNCTION IF EXISTS ...` followed by the `CREATE OR REPLACE FUNCTION ...` statement.
+    *   Modified the function's `RETURNS TABLE (...)` definition and `SELECT` list to include `event_start_time`, `event_end_time`, `due_date`, `content_status`, `priority`, `location`, and `participants` while preserving existing filtering parameters.
+    *   User confirmed successful execution of the corrected SQL script.
+3.  **Create New Migration File:** Advised user to create a new migration file (`supabase/migrations/<timestamp>_update_match_documents_return_type.sql`) containing the working `DROP` and `CREATE OR REPLACE` statements to capture this schema change in version control.
+4.  **Update API Route (`/api/llm/test/route.ts`):**
+    *   Modified the mapping logic after the `match_documents` RPC call to extract the newly returned structured fields (`chunk.event_start_time`, etc.) and place them within the `metadata` object of the `SourceChunk`.
+    *   Updated the `documentContext` assembly logic to format and include these structured fields (event start/end time, status, priority, location, participants) alongside the text content for each chunk passed to the LLM.
+    *   Included instructions for the LLM to provide a `Primary Sources:` line with document IDs for better traceability (though this part needs further testing/refinement).
+5.  **Address Truncation:** Identified that the default `max_output_tokens` in the LLM call might be too low for complex responses involving synthesized lists or detailed explanations. Increased this value (or confirmed it was already sufficient) within the `router.generate` call in `/api/llm/test/route.ts` - *(Self-correction: We didn't explicitly change maxTokens in this session, but acknowledged it as a potential factor for truncation)*.
+
+**Outcome:** LLM queries now successfully retrieve and utilize structured data like meeting times and participant lists, providing more complete and accurate answers. Source attribution via the `Primary Sources:` line is implemented but may require further refinement in how sources are selected and displayed.
+
+### [2025-05-03] Google Calendar Connector Refinement
+- **Files Affected**:
+  - `lib/connectors/google-calendar.ts`
+  - `app/api/sync/google-calendar/route.ts`
+  - `lib/services/document-processor.ts`
+- **Dependencies Added**: None
+- **Description**: Refined the Google Calendar connector's data fetching and ingestion process to improve relevance and reduce log noise.
+- **Implementation Notes**:
+  - Added `eventTypes: ['default']` parameter to `calendar.events.list` API call in `fetchData` to filter out non-standard events like contact birthdays.
+  - Modified `fetchData` logic to only fetch events from the start of the current day onwards for the *initial* sync (`lastSyncTime` is undefined), preventing ingestion of potentially large amounts of irrelevant past events.
+  - Added detailed logging within `fetchData` loop (creator, organizer, source, htmlLink) to help debug the origin of fetched events.
+  - Resolved `DocumentProcessingError: No content source available` by ensuring `fetchData` constructs a `rawContent` string (Event title, description, attendees, location) for each event before passing it to `DocumentProcessor`.
+  - Addressed `ConnectorData` type error by adding the required `type: 'google_calendar_event'` field when creating items in `fetchData`.
+  - Reduced log verbosity during sync by commenting out detailed step logs within `DocumentProcessor` and adding a progress log every 25 items in the sync API route.
+- **Potential Impacts**:
+  - Initial calendar sync is faster and ingests only relevant, current/future events.
+  - Subsequent syncs will correctly fetch events since the last sync (once lastSyncTime logic is implemented).
+  - Ingestion pipeline correctly receives text content for calendar events.
+  - Debugging event origins is easier due to enhanced logging.
+  - Terminal output during sync is less noisy.
+- **Future Considerations**:
+  - Implement storing and retrieving `lastSyncTime` for the connector to enable true delta syncs.
+  - Add more sophisticated server-side filtering in `fetchData` based on event properties (e.g., only include if user is attendee or organizer) if `eventTypes` filtering isn't sufficient.

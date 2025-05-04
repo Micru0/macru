@@ -145,7 +145,7 @@ export class DocumentProcessor {
     };
     
     // --- Create Document Record FIRST --- 
-    console.log(`[DocumentProcessor] Creating document record for: ${fileName}`);
+    // console.log(`[DocumentProcessor] Creating document record for: ${fileName}`);
     
     // Helper function to safely convert date strings/objects to ISO strings or null
     const formatTimestamp = (dateInput: string | Date | null | undefined): string | null => {
@@ -222,7 +222,7 @@ export class DocumentProcessor {
     
     // ---- If insert succeeded, documentId is guaranteed to be a string ----
     const documentId: string = insertResult.data.id; 
-    console.log(`[DocumentProcessor] Document record created with ID: ${documentId}`);
+    // console.log(`[DocumentProcessor] Document record created with ID: ${documentId}`);
 
     // ---- Main Processing Block (now assured documentId exists) ----
     try {
@@ -232,7 +232,7 @@ export class DocumentProcessor {
       let extractedText: string;
       let extractionMetadata: { wordCount: number; charCount: number; contentHash: string } | null = null;
       if (rawContent) {
-        console.log(`[DocumentProcessor] Using provided raw content for document ${documentId}.`);
+        // console.log(`[DocumentProcessor] Using provided raw content for document ${documentId}.`);
         extractedText = rawContent;
         extractionMetadata = {
           wordCount: extractedText.split(/\s+/).filter(Boolean).length, 
@@ -241,7 +241,7 @@ export class DocumentProcessor {
         };
       } else {
         // File path and type must exist if rawContent doesn't (checked above)
-        console.log(`[DocumentProcessor] Downloading file from storage: ${filePath!}`);
+        // console.log(`[DocumentProcessor] Downloading file from storage: ${filePath!}`);
         const { data: fileBuffer, error: downloadError } = await this.supabase
           .storage.from('documents').download(filePath!);
         if (downloadError || !fileBuffer) {
@@ -252,7 +252,7 @@ export class DocumentProcessor {
             downloadError as Error
           );
         }
-        console.log(`[DocumentProcessor] Extracting text for ${fileName} (${fileType!}).`);
+        // console.log(`[DocumentProcessor] Extracting text for ${fileName} (${fileType!}).`);
         const extractionResult = await this.extractText(
           fileBuffer as unknown as Buffer, fileName, fileType!, documentId // Now safe
         );
@@ -295,7 +295,7 @@ export class DocumentProcessor {
       });
 
       await this.updateDocumentStatus(documentId, 'processed');
-      console.log(`[DocumentProcessor] Finished processing document ${documentId}. Chunks: ${storedChunks.length}, Embeddings: ${embedCount}.`);
+      // console.log(`[DocumentProcessor] Finished processing document ${documentId}. Chunks: ${storedChunks.length}, Embeddings: ${embedCount}.`);
       return { documentId, status: 'processed', chunkCount: storedChunks.length };
 
     } catch (processingError) {
@@ -413,7 +413,7 @@ export class DocumentProcessor {
           continue; // Skip empty batch
         }
 
-        console.log(`[DocumentProcessor.storeChunks] Inserting batch ${i/10 + 1} with ${validBatch.length} chunks for doc ${documentId}`);
+        // console.log(`[DocumentProcessor.storeChunks] Inserting batch ${i/10 + 1} with ${validBatch.length} chunks for doc ${documentId}`);
         
         // Prepare batch for insertion by removing the 'id' field
         const batchToInsert = validBatch.map(({ id, ...rest }) => rest);
@@ -434,7 +434,7 @@ export class DocumentProcessor {
         }
       }
 
-      console.log(`[DocumentProcessor.storeChunks] Successfully stored ${storedChunks.length} chunks for doc ${documentId}`);
+      // console.log(`[DocumentProcessor.storeChunks] Successfully stored ${storedChunks.length} chunks for doc ${documentId}`);
       return storedChunks as DocumentChunk[]; // Cast result back
     } catch (error) {
       const docIdForError = chunks[0]?.document_id || 'unknown';
