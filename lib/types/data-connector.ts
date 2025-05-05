@@ -19,6 +19,16 @@ export enum SyncStatus {
   NEEDS_AUTH = 'needs_auth',
 }
 
+// Interface for the result of a sync operation
+export interface SyncResult {
+    connectorType: ConnectorType;
+    status: 'success' | 'partial_success' | 'error';
+    processedCount: number;
+    errorCount: number;
+    message: string;
+    firstErrorMessage?: string; 
+}
+
 // Interface for the data returned by a connector's fetch operation
 // This should be transformable into the Document/Chunk format used by the ingestion pipeline
 export interface ConnectorData {

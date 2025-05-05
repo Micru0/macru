@@ -52,6 +52,7 @@ const PROMPT_TEMPLATES = {
       "Answer the user's question based only on the provided context. " +
       "If you don't know the answer or the information is not in the context, say so clearly. " +
       "Do not make up information or use external knowledge not in the context. " +
+      "**Ensure your entire response is complete and not truncated.** " +
       "Cite your sources using [number] notation.",
     prompt:
       "Context information is below.\n\n" +
@@ -60,8 +61,9 @@ const PROMPT_TEMPLATES = {
       "---------------------\n\n" +
       "Given the context information and not prior knowledge, answer the query.\n" +
       "Query: {query}\n\n" +
-      "If the query cannot be answered based on the context, respond with \"I don't have enough information to answer that.\"" +
-      "Include citations to the relevant parts of the context using [number] notation."
+      "If the query cannot be answered based on the context, respond with \"I don't have enough information to answer that.\"\n" +
+      "Include citations to the relevant parts of the context using [number] notation.\n" +
+      "**IMPORTANT SOURCE ATTRIBUTION:** After your main answer, add a new line starting EXACTLY with \"Primary Sources:\" followed by a comma-separated list of the document IDs (e.g., 'abc-123', 'def-456') from the context sections (like [1], [2]) you used. If the answer was general, from memory, or no specific documents were used, use \"Primary Sources: None\"."
   },
   qa: {
     system:

@@ -67,41 +67,39 @@ export class GeminiProvider implements LLMProvider {
 
   // Define the tool schema for Gemini
   private getTools(): any[] {
+    // Define tools available based on provider capabilities or specific needs
+    // Example: Add tools for Google provider if it's selected
+    if (this.modelName === 'gemini-2.5-pro-preview-03-25') {
+        // Gemini supports function calling
     return [
+            // Add other Gemini-compatible tools here if needed
       {
-        function_declarations: [
-          // TODO: Add other action function declarations here (e.g., notion.createPage)
+              functionDeclarations: [
           {
             name: 'googleCalendar.createEvent',
-            description: 'Creates a new event in the user\'s Google Calendar.',
+                    description: 'Creates a new event on the user\'s primary Google Calendar.',
             parameters: {
-              type: 'object',
+                        type: 'OBJECT',
               properties: {
-                summary: {
-                  type: 'string',
-                  description: 'The title or summary of the event.',
-                },
-                start_time: {
-                  type: 'string',
-                  description: 'The start date and time of the event in ISO 8601 format (e.g., "2025-05-03T15:00:00Z" or "2025-05-03T10:00:00-05:00"). Include timezone.',
-                },
-                end_time: {
-                  type: 'string',
-                  description: 'The end date and time of the event in ISO 8601 format. Include timezone.',
-                },
-                description: {
-                  type: 'string',
-                  description: 'An optional longer description for the event.'
-                }
-                // Add location, attendees etc. later if needed
+                            summary: { type: 'STRING', description: 'The title or summary of the event.' },
+                            startDateTime: { type: 'STRING', description: 'The start date and time in ISO 8601 format (e.g., \"2025-05-14T16:00:00-07:00\"). Timezone is important.' },
+                            endDateTime: { type: 'STRING', description: 'The end date and time in ISO 8601 format (e.g., \"2025-05-14T17:00:00-07:00\"). Required if duration is not provided.' },
+                            // duration: { type: 'STRING', description: 'Event duration in ISO 8601 format (e.g., \"PT1H\" for 1 hour). Use instead of endDateTime if preferred.' },
+                            attendees: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Optional. An array of email addresses for attendees to invite.' },
+                            description: { type: 'STRING', description: 'Optional. A longer description or notes for the event.' },
+                            location: { type: 'STRING', description: 'Optional. The location of the event.' }
               },
-              required: ['summary', 'start_time', 'end_time'],
-            },
-          },
-          // Add other future actions here
-        ],
-      },
+                        required: ['summary', 'startDateTime'] // Require summary and start. End/duration logic handled later.
+                    }
+                }
+                // Add other function declarations here
+              ]
+            }
     ];
+    } else {
+        // Return empty array or tools compatible with other providers
+        return [];
+    }
   }
 
   // Generate response (text or action) from Gemini API

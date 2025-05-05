@@ -7,9 +7,20 @@ import { ActionDispatcher } from '@/lib/services/action-dispatcher';
 import { cookies as getCookiesFromHeaders } from 'next/headers'; // Alias import for clarity
 import { ActionLogger } from '@/lib/services/action-logger'; // Import ActionLogger
 import { checkRateLimit } from '@/lib/utils/rate-limiter'; // Import Rate Limiter
+import { GoogleCalendarConnector } from '@/lib/connectors/google-calendar'; // Import the connector
+import { Database } from '@/lib/types/database.types'; // Ensure Database types are imported if needed for Supabase client
 
 // Instantiate the dispatcher (consider making it a singleton if appropriate)
 const dispatcher = new ActionDispatcher();
+
+// Define ActionResult type
+interface ActionResult {
+  success: boolean;
+  message?: string;
+  error?: string;
+  data?: any; // Optional data field for results
+  eventId?: string; // Specific for calendar events
+}
 
 export async function POST(request: Request) {
   console.log('[API Action] Received POST request.');
@@ -67,14 +78,13 @@ export async function POST(request: Request) {
   if (!isAllowed) {
     console.warn(`[API Action] Rate limit exceeded for user ${user.id}`);
     // Log the rate limit event
-    await ActionLogger.logAction({
-        userId: user.id,
-        actionType: 'rate-limit-exceeded',
-        params: { path: '/api/action' },
-        success: false,
-        error: 'Rate limit exceeded',
-        request: { headers: Object.fromEntries(request.headers.entries()), ip: request.headers.get('x-forwarded-for') ?? undefined }
-    }, supabase);
+    await ActionLogger.log(
+        user.id,
+        'rate-limit-exceeded',
+        'attempted',
+        { path: '/api/action' },
+        supabase
+    );
     // Return 429 Too Many Requests, attaching the headers already set on 'rateLimitHeaders'
     return new NextResponse(JSON.stringify({ error: 'Too Many Requests' }), { 
         status: 429, 
@@ -95,40 +105,64 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid request body', details: error }, { status: 400, headers: rateLimitHeaders });
   }
 
-  // 3. Dispatch Action
-  console.log(`[API Action] Dispatching action of type: ${actionRequest.type}`);
-  let actionResult: { success: boolean; data?: any; error?: string } | null = null;
-  let dispatchError: any = null;
-  try {
-    actionResult = await dispatcher.dispatch(actionRequest, user.id);
-  } catch (error) {
-    dispatchError = error;
-    console.error(`[API Action] Critical error handling action '${actionRequest.type}':`, error);
-  }
-
   // 4. Log Action Attempt
-  await ActionLogger.logAction({
-      userId: user.id,
-      actionType: actionRequest.type,
-      params: actionRequest.parameters,
-      success: actionResult?.success ?? false,
-      message: actionResult?.success ? 'Action completed' : undefined,
-      error: actionResult?.error || (dispatchError instanceof Error ? dispatchError.message : dispatchError?.toString()),
-      request: { headers: Object.fromEntries(request.headers.entries()), ip: request.headers.get('x-forwarded-for') ?? undefined }
-  }, supabase);
+  await ActionLogger.log(
+      user.id,
+      actionRequest.type,
+      'attempted',
+      actionRequest.parameters,
+      supabase
+  );
 
+  // 5. Execute Action
+  let executionResult: ActionResult = { success: false, error: 'Executor not found' };
+  let executionError: any = null; // Declare executionError here
+  try {
+    executionResult = await executeAction(actionRequest.type, actionRequest.parameters, user.id);
+
+    // 6. Log Final Outcome (Success/Failure) based on executionResult
+    await ActionLogger.log(
+        user.id,
+        actionRequest.type,
+        executionResult.success ? 'success' : 'failed',
+        { 
+            params: actionRequest.parameters, 
+            message: executionResult.message, 
+            error: executionResult.error 
+        },
+        supabase
+    );
+
+  } catch (err: any) { // Catch error into 'err'
+    console.error(`[API Action] Critical error handling action '${actionRequest.type}':`, err);
+    executionError = err; // Assign caught error to executionError
+    executionResult = { success: false, error: err.message || 'Unknown execution error' }; // Update result on catch
+    
+    // Log failure due to caught error
+     await ActionLogger.log(
+        user.id,
+        actionRequest.type,
+        'failed',
+        { 
+            params: actionRequest.parameters, 
+            error: executionResult.error 
+        },
+        supabase
+    );
+  }
+  
   // 5. Return Final Response with Rate Limit Headers
   let finalResponse: NextResponse;
-  if (dispatchError) {
-    // Return error from caught exception during dispatch
-    finalResponse = NextResponse.json({ success: false, error: 'Critical server error during action processing.', details: dispatchError.message }, { status: 500, headers: rateLimitHeaders });
-  } else if (actionResult?.success) {
+  if (executionError) { // Check if an error was caught
+    // Return error from caught exception during execution
+    finalResponse = NextResponse.json({ success: false, error: 'Critical server error during action processing.', details: executionError.message }, { status: 500, headers: rateLimitHeaders });
+  } else if (executionResult.success) {
       console.log(`[API Action] Action '${actionRequest.type}' executed successfully.`);
-      finalResponse = NextResponse.json(actionResult, { status: 200, headers: rateLimitHeaders });
+      finalResponse = NextResponse.json(executionResult, { status: 200, headers: rateLimitHeaders });
   } else {
-      console.error(`[API Action] Action '${actionRequest.type}' execution failed: ${actionResult?.error}`);
-      const status = actionResult?.error?.includes('Invalid parameters') ? 400 : 500;
-      finalResponse = NextResponse.json(actionResult, { status, headers: rateLimitHeaders });
+      console.error(`[API Action] Action '${actionRequest.type}' execution failed: ${executionResult.error}`);
+      const status = executionResult.error?.includes('Invalid parameters') ? 400 : 500;
+      finalResponse = NextResponse.json(executionResult, { status, headers: rateLimitHeaders });
   }
 
   // NOTE: Applying cookies set via cookieStore.set/delete back to the 
@@ -137,4 +171,40 @@ export async function POST(request: Request) {
   // Further testing might be needed if auth state changes don't persist.
 
   return finalResponse; 
+} 
+
+// TODO: Implement actual action execution logic here
+async function executeAction(type: string, parameters: any, userId: string) {
+    ActionLogger.log(userId, type, 'attempted', parameters);
+    console.log(`[Action API] Attempting action: ${type} for user ${userId}`, parameters);
+
+    // --- Action Routing --- 
+    switch (type) {
+        case 'googleCalendar.createEvent':
+            try {
+                const connector = new GoogleCalendarConnector(); // Instantiate connector
+                const result = await connector.createEvent(userId, parameters as any); // Call the new method
+                if (result.success) {
+                    ActionLogger.log(userId, type, 'success', { eventId: result.eventId });
+                    return { success: true, message: `Event created successfully (ID: ${result.eventId})` };
+                } else {
+                    ActionLogger.log(userId, type, 'failed', { error: result.error });
+                    return { success: false, message: result.error || 'Failed to create calendar event.' };
+                }
+            } catch (error: any) {
+                console.error(`[Action API] Error executing ${type}:`, error);
+                ActionLogger.log(userId, type, 'failed', { error: error.message });
+                return { success: false, message: `Error creating event: ${error.message}` };
+            }
+            
+        case 'notion.createPage': // Example placeholder
+            console.warn('[Action API] notion.createPage action not implemented yet.');
+            ActionLogger.log(userId, type, 'failed', { error: 'Not implemented' });
+            return { success: false, message: 'Notion page creation not implemented yet.' };
+
+        default:
+            console.warn(`[Action API] Unknown action type: ${type}`);
+            ActionLogger.log(userId, type, 'failed', { error: 'Unknown action type' });
+            return { success: false, message: `Unknown action type: ${type}` };
+    }
 } 

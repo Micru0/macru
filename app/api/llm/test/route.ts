@@ -11,6 +11,7 @@ import { MemoryItem, MemoryType, MemoryPriority } from '@/lib/types/memory';
 import { performance } from 'perf_hooks';
 import { memoryServiceServer } from '@/lib/services/memory-service-server';
 import { cookies } from 'next/headers';
+import { getUserProfile, Profile } from '@/lib/services/user-service';
 
 // Supabase configuration
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
@@ -30,6 +31,8 @@ export async function POST(request: Request) {
   const startTime = performance.now(); // Start total timer
   let userId: string | null = null;
   let embeddingTime = 0, searchTime = 0, memoryTime = 0, llmTime = 0, processingTime = 0;
+  const currentDateISO = new Date().toISOString(); // Get current date
+  let userTimezone: string | null = null;
   
   // Create response object early for cookie handling
   let response = NextResponse.next();
@@ -71,6 +74,20 @@ export async function POST(request: Request) {
         // return NextResponse.json({ error: "Unauthorized", message: "No active session found." }, { status: 401 });
     } else {
         console.log(`[API LLM Test] User authenticated: ${userId}`);
+
+        // --- Fetch User Profile for Timezone --- 
+        try {
+          const profile = await getUserProfile(supabaseUserClient);
+          userTimezone = (profile as any)?.timezone || null;
+          if (userTimezone) {
+            console.log(`[API LLM Test] User timezone found: ${userTimezone}`);
+          } else {
+            console.log(`[API LLM Test] User timezone not set in profile.`);
+          }
+        } catch (profileError) {
+          console.error("[API LLM Test] Error fetching user profile:", profileError);
+          // Proceed without timezone, don't fail the request
+        }
     }
     // --- End Get User ID ---
 
@@ -175,7 +192,8 @@ export async function POST(request: Request) {
           location: chunk.location,                 // NEW
           participants: chunk.participants,         // NEW
         },
-        documentType: chunk.document_type 
+        documentType: chunk.document_type,
+        source_url: chunk.source_url // Include the source URL
       }));
       
       retrievedChunks = sourceChunks; 
@@ -208,7 +226,7 @@ export async function POST(request: Request) {
     // --- Filter Chunks if Query Targets Specific Document --- 
     let finalChunks = retrievedChunks;
     // Regex v4: Tries to capture after 'called'/'named' OR within quotes
-    const specificDocQueryMatch = query.match(/^.*\b(?:called|named)\s+['"“]?(.+?)['"”]?(\s+on\s+\w+)?\s*$|.*?['"“](.+?)['"”](\s+on\s+\w+)?\s*$/i);
+    const specificDocQueryMatch = query.match(/^.*\b(?:called|named)\s+['""?(.+?)['""]?(\s+on\s+\w+)?\s*$|.*?['""?](.+?)['"'](\s+on\s+\w+)?\s*$/i);
     
     let potentialTitle: string | undefined = undefined;
     let potentialSuffix: string | undefined = undefined;
@@ -300,7 +318,7 @@ export async function POST(request: Request) {
         documentContext += `-- Document Chunk ${index + 1} End --\\n`;
       });
     }
-    
+      
     const memoryContext = retrievedMemories
       .map(mem => `[Memory: ${mem.type} - ${new Date(mem.created_at).toLocaleDateString()}] ${mem.content}`)
       .join("\n\n"); 
@@ -325,7 +343,9 @@ export async function POST(request: Request) {
       documentContext, // Pass document context
       memoryContext,   // Pass memory context
       process.env.ENABLE_MEMORY_LAYER === 'true',
-      [] // Pass empty tools array
+      [], // **MODIFIED**: Pass empty tools array temporarily for troubleshooting
+      currentDateISO, // Pass currentDateISO
+      userTimezone     // Pass user's timezone
     );
     // Optional: Log final prompt (can be long)
     // console.log("[API Route] Final prompt:", formattedPrompt);
@@ -353,7 +373,7 @@ export async function POST(request: Request) {
       console.log(`[API Route - Action Proposed] Total Time: ${(endTime - startTime).toFixed(2)}ms`);
       const actionResponse = {
         response: {
-          text: `The assistant proposed an action: ${actionRequest.type}. Confirmation UI not yet implemented.`,
+          text: "Okay, please confirm the details below.", // Updated confirmation text
           citations: [], // No citations for action proposals
           hasSourceAttribution: false,
         },
@@ -366,9 +386,28 @@ export async function POST(request: Request) {
     }
 
     // --- Proceed with text response processing if no action proposed ---
-    if (llmResponse.text === undefined) {
+    if (llmResponse.text === undefined && !llmResponse.actionRequest) {
         // This should ideally not happen if actionRequest is also null, but handle defensively
         throw new Error("LLM response contained neither text nor an action request.");
+    }
+
+    // If action was proposed, potentially add timezone if missing
+    if (llmResponse.actionRequest && typeof llmResponse.actionRequest === 'object' && llmResponse.actionRequest !== null) {
+      const action = llmResponse.actionRequest as any; // Workaround
+      if (action.type === 'googleCalendar.createEvent' && userTimezone && action.parameters && typeof action.parameters === 'object') {
+        const params = action.parameters as { startDateTime?: string; endDateTime?: string; [key: string]: any }; // Type assertion for parameters
+        if (params.startDateTime && !/[+-]\d{2}:\d{2}$|Z$/.test(params.startDateTime)) {
+           console.warn(`[API LLM Test] Action ${action.type} proposed without timezone, but user has one (${userTimezone}). Appending timezone is needed but not yet implemented.`);
+           // TODO: Implement robust date parsing and timezone appending here
+           // Example placeholder: action.parameters.startDateTime = appendTimezone(action.parameters.startDateTime, userTimezone);
+        }
+        if (params.endDateTime && !/[+-]\d{2}:\d{2}$|Z$/.test(params.endDateTime)) {
+           console.warn(`[API LLM Test] Action ${action.type} proposed without timezone for end time. Appending timezone is needed but not yet implemented.`);
+           // TODO: Implement robust date parsing and timezone appending here
+        }
+      }
+      // Re-assign potentially modified action back to the response object
+      llmResponse.actionRequest = action;
     }
 
     // --- 4. Process Response & Extract Sources --- 
@@ -417,7 +456,7 @@ export async function POST(request: Request) {
       processedText, // Pass the cleaned processed text
       identifiedSources // Use the identified sources for citation
     );
-    
+
     // --- 7. Cache Store ---
     queryCache.set(cacheKey, processedResponse);
     // --- End Cache Store ---
@@ -447,18 +486,24 @@ export async function POST(request: Request) {
 
 // Helper function to format the prompt with history and context
 const formatPromptWithHistoryAndContext = (
-  query: string,
+  query: string, 
   history: HistoryItem[],
   documentContext: string,
   memoryContext: string,
   enableMemory: boolean,
-  tools: any[] // Added tools parameter
+  tools: any[], // Added tools parameter
+  currentDateISO: string, // Added currentDateISO parameter
+  userTimezone: string | null // Added userTimezone parameter
 ): string => {
   let formattedHistory = history
     .map(item => `${item.role === 'user' ? 'User' : 'Assistant'}: ${item.content}`)
     .join('\n');
 
-  let prompt = `You are Macru, a helpful AI assistant interacting with a user based *only* on the provided CONTEXT (documents and memory) and conversation HISTORY. Your goal is to answer the user's query accurately and concisely.
+  let prompt = `You are Macru, a helpful AI assistant interacting with a user based *only* on the provided CONTEXT (documents and memory), CURRENT DATE, and conversation HISTORY. Your goal is to answer the user's query accurately and concisely.
+
+== CURRENT DATE ==
+${currentDateISO}
+${userTimezone ? `\n== USER'S DEFAULT TIMEZONE ==\n${userTimezone}\n(Use this timezone for scheduling unless the user specifies otherwise. DO NOT ask for the timezone if it's already provided here or in the query.)` : ''}
 
 == AVAILABLE TOOLS ==
 ${tools.length > 0 ? JSON.stringify(tools, null, 2) : 'None'}
@@ -479,18 +524,25 @@ ${memoryContext || 'No relevant memories found in context.'}\n`;
 User: ${query}
 
 == INSTRUCTIONS ==
-1.  **Analyze Query:** Understand the user's latest query in the context of the conversation history.
+1.  **Analyze Query:** Understand the user\\'s latest query in the context of the conversation history and the CURRENT DATE.
 2.  **Consult Context:** Search the CONTEXT DOCUMENTS and MEMORY CONTEXT for relevant information. Prioritize information from CONTEXT DOCUMENTS.
-3.  **Tool Use:** If the query clearly asks for an action that matches an AVAILABLE TOOL (e.g., "schedule a meeting"), formulate the correct function call.
-4.  **Synthesize Answer:** Generate an answer based *strictly* on the relevant information found in the context and history. DO NOT use external knowledge or make assumptions.
-5.  **Conciseness:** Keep your initial answer concise. For queries like "remind me about X" or "what is X?", provide a brief 1-2 sentence summary highlighting the key points. You can offer to provide more details if the user asks for them.
-6.  **Formatting:** Structure your answer clearly using Markdown for readability, even for brief summaries.
-    *   Use headings (like ## Heading) for main topics *if providing more detail*.
-    *   Use bullet points (like - Point 1) or numbered lists (like 1. Step 1) for details, steps, features, or benefits *when appropriate for clarity*.
+3.  **Tool Use:** If the query asks for an action matching an AVAILABLE TOOL (e.g., "schedule meeting"):
+    *   **Gather Parameters:** Identify all required parameters (e.g., summary, startDateTime, endDateTime/duration, attendees, timezone). Use the CURRENT DATE to resolve relative times (e.g., "tomorrow", "next Tuesday"). **If the user's default timezone is provided above, use it unless the user specifies a different one in their query.**
+    *   **Check Completeness:**
+        *   **If ALL parameters are clearly available** (from query + history + date context + default timezone): Proceed directly to the 'Propose Action' step below.
+        *   **If parameters are MISSING or AMBIGUOUS** (e.g., time mentioned but no timezone provided in query OR default settings): Ask the user *only* for the specific missing information (e.g., "What timezone should I use?", "Who should attend?"). **Do not ask for the timezone if the default is available and the user didn't specify another.**
+    *   **Propose Action:** Once all required parameters are confirmed (either initially or after user clarification), your response MUST **ONLY contain the formatted function call** for the appropriate tool (e.g., googleCalendar.createEvent). **DO NOT include any conversational text before the function call** (e.g., do not say "Okay, here is the action..." or "Scheduling the meeting now..."). Your entire response should be *just* the function call proposal that the system expects.
+    *   **Function Call Format:** Formulate the function call accurately for the appropriate tool (e.g., googleCalendar.createEvent) including all parameters. Ensure the output format is precisely what the system expects for a function call proposal.
+4.  **Synthesize Answer:** If no tool use is appropriate, generate an answer based *strictly* on the relevant information found in the context and history. DO NOT use external knowledge or make assumptions. If the user asks for analysis, comparison, or synthesis (e.g., \\'compare X and Y\\', \\'summarize benefits\\'), perform this analysis based *only* on the provided context, clearly indicating the basis for your reasoning.
+5.  **Conciseness:** Keep your initial answer concise. For queries like \\\"remind me about X\\\" or \\\"what is X?\\\", provide a brief 1-2 sentence summary highlighting the key points. You can offer to provide more details if the user asks for them.
+6.  **Formatting:** Structure your answer clearly using Markdown for readability. 
+    *   **Always use Markdown bullet points (\`\\- Item\`) or numbered lists (\`1\\. Item\`) when listing multiple items, steps, pros/cons, or distinct points.**
+    *   Use headings (like ## Heading) for main topics *only if providing significant detail*.
     *   Use bold text (like **important term**) for emphasis.
-7.  **"Not Found" Handling:** If the user asks about a specific document, person, or topic that is NOT explicitly mentioned or identifiable within the provided CONTEXT DOCUMENTS or MEMORY CONTEXT, state clearly that the information is not available *in the provided context*. Do not guess or apologize.
-8.  **Follow-up Handling:** If the user asks about information seemingly missing from a *previous* answer (e.g., "What about X?", "Why didn't you mention Y?"), re-scan the *current* CONTEXT DOCUMENTS carefully for any mention of that specific item (X or Y). If found, provide the information concisely using clear Markdown formatting. If still not found in the current context, reiterate that it's not available in the provided context.
-9.  **Source Attribution:** IMMEDIATELY AFTER your main response text, add a new line starting EXACTLY with "Primary Sources:" followed by a comma-separated list of the DOCUMENT_ID(s) from the CONTEXT DOCUMENTS that you directly used to formulate the answer. Cite ALL relevant sources accurately. If the answer was general, came only from memory, or if you stated information wasn't found, use "Primary Sources: None".
+7.  **\\\"Not Found\\\" Handling:** If the user asks about a specific document, person, or topic that is NOT explicitly mentioned or identifiable within the provided CONTEXT DOCUMENTS or MEMORY CONTEXT, state clearly that the information is not available *in the provided context*. Do not guess or apologize.
+8.  **Follow-up Handling:** If the user asks about information seemingly missing from a *previous* answer (e.g., \\\"What about X?\\\"), re-scan the *current* CONTEXT DOCUMENTS carefully for any mention of that specific item (X or Y). If found, provide the information concisely using clear Markdown formatting. If still not found in the current context, reiterate that it\\\'s not available in the provided context.
+9.  **Completeness:** Ensure your entire response is generated and not cut off prematurely.
+10. **Source Attribution:** IMMEDIATELY AFTER your main response text, add a new line starting EXACTLY with \\\"Primary Sources:\\\" followed by a comma-separated list of the DOCUMENT_ID(s) from the CONTEXT DOCUMENTS that you directly used to formulate the answer. Cite ALL relevant sources accurately. If the answer was general, came only from memory, or if you stated information wasn\\\'t found, use \\\"Primary Sources: None\\\".
 
 Assistant:
 `;

@@ -5,8 +5,11 @@ import { cookies } from 'next/headers';
 import { Database } from '../types/database.types';
 import { SupabaseClient } from '@supabase/supabase-js';
 
-// TODO: Define required scopes
-const SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']; // Example: Read-only access
+// Define required scopes
+const SCOPES = [
+    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/calendar.events' // <<< Added this scope for write access
+];
 
 // Helper function to get the OAuth2 client
 function getOAuth2Client() {
@@ -372,4 +375,96 @@ export class GoogleCalendarConnector implements DataConnector {
 
         return fetchedItems;
     }
+
+    // --- New Method to Create Event ---
+    async createEvent(userId: string, eventData: { 
+        summary: string; 
+        startDateTime: string; 
+        endDateTime?: string; 
+        // duration?: string; // Handle duration later if needed
+        attendees?: string[]; 
+        description?: string; 
+        location?: string; 
+    }): Promise<{ success: boolean; eventId?: string; error?: string }> {
+        console.log(`[Connector Class ${this.type}] createEvent() called for user ${userId} with data:`, eventData);
+        if (!userId) {
+            return { success: false, error: 'User ID required for createEvent.' };
+        }
+
+        const tokenData = await getGoogleToken(userId);
+        if (!tokenData || !tokenData.access_token) {
+             return { success: false, error: 'No valid Google Calendar token found for user.' };
+        }
+
+        const oauth2Client = getOAuth2Client();
+        oauth2Client.setCredentials({
+            access_token: tokenData.access_token,
+            refresh_token: tokenData.refresh_token,
+        });
+
+        const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
+        // Basic validation and formatting
+        if (!eventData.summary || !eventData.startDateTime) {
+            return { success: false, error: 'Missing required fields: summary or startDateTime.' };
+        }
+        if (!eventData.endDateTime) {
+            // Default to 1 hour duration if endDateTime is missing
+            try {
+                const startDate = new Date(eventData.startDateTime);
+                const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // Add 1 hour
+                eventData.endDateTime = endDate.toISOString();
+                console.log(`[Connector Class ${this.type}] endDateTime missing, defaulting to 1 hour duration: ${eventData.endDateTime}`);
+            } catch (e) {
+                return { success: false, error: 'Invalid startDateTime format for calculating default duration.' };
+            }
+        }
+
+        const eventPayload: any = {
+            summary: eventData.summary,
+            start: {
+                dateTime: eventData.startDateTime,
+                // timeZone: 'Your/Timezone' // TODO: Consider adding timezone awareness
+            },
+            end: {
+                dateTime: eventData.endDateTime,
+                 // timeZone: 'Your/Timezone'
+            },
+        };
+
+        if (eventData.description) {
+            eventPayload.description = eventData.description;
+        }
+        if (eventData.location) {
+            eventPayload.location = eventData.location;
+        }
+        if (eventData.attendees && eventData.attendees.length > 0) {
+            eventPayload.attendees = eventData.attendees.map(email => ({ email: email.trim() }));
+            // Optionally add conference data for Google Meet link
+            eventPayload.conferenceData = {
+                createRequest: { requestId: `macru-meet-${Date.now()}` }
+            };
+        }
+
+        try {
+            console.log(`[Connector Class ${this.type}] Calling calendar.events.insert with payload:`, JSON.stringify(eventPayload, null, 2));
+            const response = await calendar.events.insert({
+                calendarId: 'primary',
+                requestBody: eventPayload,
+                sendNotifications: true, // Send invitations to attendees
+                conferenceDataVersion: 1 // Required if adding conference data
+            });
+
+            const createdEvent = response.data;
+            console.log(`[Connector Class ${this.type}] Event created successfully. ID: ${createdEvent.id}, Link: ${createdEvent.htmlLink}`);
+            return { success: true, eventId: createdEvent.id || undefined };
+
+        } catch (error: any) {
+            console.error(`[Connector Class ${this.type}] Error creating Google Calendar event:`, error);
+            // Provide more specific error message if possible
+            const errorMessage = error.response?.data?.error?.message || error.message || 'Unknown error';
+            return { success: false, error: `Failed to create event: ${errorMessage}` };
+        }
+    }
+    // --- End New Method ---
 } 

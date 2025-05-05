@@ -17,12 +17,30 @@ import { Button } from '@/components/ui/button';
 import { updateUserProfile, Profile } from '@/lib/services/user-service';
 import { useToast } from '@/components/ui/use-toast';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
+// List of common timezones (can be expanded)
+const timezones = [
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Asia/Tokyo',
+  'Asia/Dubai',
+  'Australia/Sydney',
+  // Add more as needed
+];
 
 const profileSchema = z.object({
   username: z.string().min(3, 'Username must be at least 3 characters').max(50, 'Username cannot exceed 50 characters'),
   full_name: z.string().min(1, 'Full name is required').max(100, 'Full name cannot exceed 100 characters'),
   website: z.string().url('Please enter a valid URL').optional().or(z.literal('')),
-  avatar_url: z.string().url('Please enter a valid URL').optional().or(z.literal(''))
+  avatar_url: z.string().url('Please enter a valid URL').optional().or(z.literal('')),
+  timezone: z.string().optional().nullable(),
 });
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
@@ -41,7 +59,8 @@ export default function ProfileForm({ initialData }: ProfileFormProps) {
       username: initialData?.username || '',
       full_name: initialData?.full_name || '',
       website: initialData?.website || '',
-      avatar_url: initialData?.avatar_url || ''
+      avatar_url: initialData?.avatar_url || '',
+      timezone: initialData?.timezone || null,
     }
   });
   
@@ -138,6 +157,31 @@ export default function ProfileForm({ initialData }: ProfileFormProps) {
               <FormControl>
                 <Input placeholder="https://example.com/avatar.jpg" {...field} value={field.value || ''} />
               </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        
+        <FormField
+          control={form.control}
+          name="timezone"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Timezone</FormLabel>
+              <Select onValueChange={field.onChange} defaultValue={field.value ? field.value : undefined}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select your timezone" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {timezones.map((tz) => (
+                    <SelectItem key={tz} value={tz}>
+                      {tz}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <FormMessage />
             </FormItem>
           )}

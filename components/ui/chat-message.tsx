@@ -6,18 +6,14 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { cn } from "@/lib/utils";
 import { useState } from 'react';
-
-type Source = {
-  title: string;
-  content?: string;
-  url?: string;
-};
+import { SourceChunk } from '@/lib/services/response-processor';
+import { useMediaQuery } from "@/lib/hooks/use-media-query";
 
 export interface ChatMessageProps {
   message: string;
   isUser: boolean;
   timestamp?: Date;
-  sources?: Source[];
+  sources?: SourceChunk[];
   isLoading?: boolean;
 }
 
@@ -29,28 +25,33 @@ export function ChatMessage({
   isLoading = false,
 }: ChatMessageProps) {
   const [showSources, setShowSources] = useState(false);
+  const isMobile = useMediaQuery("(max-width: 640px)");
 
   return (
     <div
       className={cn(
-        "flex w-full items-start gap-x-4 py-6",
+        "flex w-full items-start gap-x-2 sm:gap-x-4 py-3 sm:py-6",
         isUser ? "justify-end" : "justify-start"
       )}
     >
       <div
         className={cn(
-          "flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full",
+          "flex shrink-0 select-none items-center justify-center rounded-full",
+          isMobile ? "h-6 w-6" : "h-8 w-8", 
           isUser
             ? "bg-primary text-primary-foreground"
             : "bg-muted text-muted-foreground"
         )}
       >
-        {isUser ? <User className="h-5 w-5" /> : <Bot className="h-5 w-5" />}
+        {isUser ? 
+          <User className={isMobile ? "h-4 w-4" : "h-5 w-5"} /> : 
+          <Bot className={isMobile ? "h-4 w-4" : "h-5 w-5"} />
+        }
       </div>
       <div className="flex flex-col max-w-2xl w-auto">
         <div
           className={cn(
-            "rounded-lg px-4 py-2 shadow",
+            "rounded-lg px-3 py-2 sm:px-4 sm:py-2 shadow",
             isUser
               ? "bg-primary text-primary-foreground"
               : "bg-muted text-foreground"
@@ -63,7 +64,7 @@ export function ChatMessage({
               <div className="animate-pulse h-2 w-2 rounded-full bg-current delay-300" />
             </div>
           ) : (
-            <div className="prose prose-sm dark:prose-invert">
+            <div className="prose prose-sm dark:prose-invert max-w-full text-sm sm:text-base">
               <ReactMarkdown 
                 remarkPlugins={[remarkGfm]} 
                 rehypePlugins={[rehypeRaw]}
@@ -73,30 +74,25 @@ export function ChatMessage({
                       {children}
                     </a>
                   ),
-                  ul: ({ children }) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
-                  ol: ({ children }) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
+                  ul: ({ children }) => <ul className="list-disc pl-3 sm:pl-4 mb-2">{children}</ul>,
+                  ol: ({ children }) => <ol className="list-decimal pl-3 sm:pl-4 mb-2">{children}</ol>,
                   li: ({ children }) => <li className="mb-1">{children}</li>,
-                  // Handle code blocks: apply styling to pre for blocks, code for inline
                   pre: ({ children, ...props }) => (
-                    <pre className="bg-muted p-2 rounded-md overflow-x-auto text-sm font-mono my-2" {...props}>
+                    <pre className="bg-muted p-1 sm:p-2 rounded-md overflow-x-auto text-xs sm:text-sm font-mono my-1 sm:my-2" {...props}>
                       {children}
                     </pre>
                   ),
-                  // @ts-ignore - inline is provided by react-markdown
-                  code: ({ node, inline, className, children, ...props }) => {
-                    if (inline) {
-                      // Style inline code differently
-                      return <code className="bg-muted px-1 py-0.5 rounded text-sm font-mono" {...props}>{children}</code>;
-                    }
-                    // For code within pre (block code), don't add extra styling here, 
-                    // rely on the parent pre handler above.
-                    // Pass className for syntax highlighting if applicable.
+                  code: ({ node, className, children, ...props }) => {
                     const match = /language-(\w+)/.exec(className || '');
-                    return (
-                        <code className={className} {...props}>
-                          {children}
-                        </code>
-                    );
+                    if (match || (typeof children === 'string' && children.includes('\n'))) {
+                      return (
+                          <code className={className} {...props}>
+                            {children}
+                          </code>
+                      );
+                    } else {
+                      return <code className="bg-muted px-1 py-0.5 rounded text-xs sm:text-sm font-mono" {...props}>{children}</code>;
+                    }
                   }
                 }}
               >
@@ -106,7 +102,7 @@ export function ChatMessage({
           )}
         </div>
         {timestamp && (
-          <div className="text-xs text-muted-foreground mt-1">
+          <div className="text-[10px] sm:text-xs text-muted-foreground mt-1">
             {new Intl.DateTimeFormat("en-US", {
               hour: "numeric",
               minute: "numeric",
@@ -114,30 +110,52 @@ export function ChatMessage({
           </div>
         )}
         {sources && sources.length > 0 && (
-          <div className="mt-2">
+          <div className="mt-1 sm:mt-2">
             <button 
               onClick={() => setShowSources(!showSources)}
-              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 mb-1"
+              className="text-[10px] sm:text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 mb-1"
             >
               Sources 
-              {showSources ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              {showSources ? 
+                <ChevronUp size={isMobile ? 10 : 12} /> : 
+                <ChevronDown size={isMobile ? 10 : 12} />
+              }
             </button>
             
             {showSources && (
-              <ul className="list-disc list-inside text-xs space-y-1 pl-2">
+              <ul className="list-disc list-inside text-[10px] sm:text-xs space-y-1 pl-1 sm:pl-2">
                 {sources.map((source, index) => (
-                  <li key={index}>
-                    {source.url ? (
+                  <li key={source.documentId || index}>
+                    {source.source_url ? (
                       <a
-                        href={source.url}
+                        href={source.source_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-primary hover:underline"
+                        className="hover:underline"
+                        title={`${source.documentName} (${source.documentType})${source.similarity ? ' - ' + source.similarity.toFixed(2) : ''} - ${source.source_url}`}
                       >
-                        {source.title}
+                        {source.documentType === 'notion' ? 'Notion: ' 
+                          : source.documentType === 'file_upload' ? 'File: ' 
+                          : source.documentType === 'google_calendar' ? 'Calendar: ' 
+                          : ''}
+                        {source.documentName || 'Unknown Source'}
+                        {source.similarity && (
+                          <span className="text-muted-foreground/80"> ({source.similarity.toFixed(2)})</span>
+                        )}
                       </a>
                     ) : (
-                      <span>{source.title}</span>
+                      <span
+                        title={`${source.documentName} (${source.documentType})${source.similarity ? ' - ' + source.similarity.toFixed(2) : ''}`}
+                      >
+                        {source.documentType === 'notion' ? 'Notion: ' 
+                          : source.documentType === 'file_upload' ? 'File: ' 
+                          : source.documentType === 'google_calendar' ? 'Calendar: ' 
+                          : ''}
+                        {source.documentName || 'Unknown Source'}
+                        {source.similarity && (
+                          <span className="text-muted-foreground/80"> ({source.similarity.toFixed(2)})</span>
+                        )}
+                      </span>
                     )}
                   </li>
                 ))}

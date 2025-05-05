@@ -6,11 +6,13 @@ import { Source, ProcessedResponse } from './response-processor';
 
 interface ApiResponse {
   response: ProcessedResponse;
+  proposedAction?: any;
 }
 
 interface ChatServiceResponse {
   content: string;
   sources?: Source[];
+  proposedAction?: any;
 }
 
 /**
@@ -46,21 +48,38 @@ export async function sendQueryToLLM(
     }
 
     // Parse the API response which now contains the processed response object
-    const apiData: ApiResponse = await response.json();
-    
-    // Extract the content and sources from the processed response
-    const processedResponse = apiData.response;
-    
-    if (!processedResponse || typeof processedResponse.responseText !== 'string') {
-      console.error('[ChatService] Invalid response structure from API:', apiData);
-      throw new Error('Received invalid response structure from the backend.');
+    // Type needs to accommodate both text and action responses
+    const apiData: any = await response.json(); 
+
+    // **NEW**: Check if an action was proposed
+    if (apiData.proposedAction) {
+      console.log('[ChatService] Received proposed action:', apiData.proposedAction);
+      // The 'response' object in the action case might contain a message *about* the action
+      const actionMessage = apiData.response?.text || 'Assistant proposed an action.'; 
+      
+      // Return a specific structure indicating an action proposal
+      // The UI will need to be updated to handle this type
+      return {
+        content: actionMessage,
+        sources: [], // No document sources for action proposals
+        proposedAction: apiData.proposedAction, // Include the action details
+      };
     }
 
-    // Return the content and the actual sources from the API
-    return {
-      content: processedResponse.responseText,
-      sources: processedResponse.sources,
-    };
+    // **EXISTING**: Handle regular text response
+    const processedResponse = apiData.response; // Standard response object
+    if (processedResponse && typeof processedResponse.responseText === 'string') {
+      // Return the content and the actual sources from the API
+      return {
+        content: processedResponse.responseText,
+        sources: processedResponse.sources || [], // Ensure sources is always an array
+      };
+    } 
+
+    // **ERROR**: If neither action nor valid text response is found
+    console.error('[ChatService] Invalid response structure from API:', apiData);
+    throw new Error('Received invalid response structure from the backend.');
+
   } catch (error) {
     console.error('[ChatService] Error querying LLM:', error);
     // Provide a more specific error message if possible

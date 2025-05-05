@@ -120,24 +120,39 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    // Process response to ensure proper source attribution
-    // For now, we'll use the raw LLM response
-    // In the future, this would be processed by the ResponseProcessor
-    const response = llmResponse.text ?? '';
+    // --- Process Response & Extract Sources --- 
+    let rawResponseText = llmResponse.text ?? '';
+    let processedText = rawResponseText;
+    let identifiedSourceIds: string[] = [];
 
-    // Construct sources information
-    const sources = assembledContext.sources.map(source => ({
-      id: source.id,
-      title: source.title,
-      type: source.document_type
-    }));
+    const sourceLineMatch = rawResponseText.match(/\nPrimary Sources: (.*)/);
+
+    if (sourceLineMatch && sourceLineMatch[1].trim().toLowerCase() !== 'none') {
+      identifiedSourceIds = sourceLineMatch[1].split(',').map(id => id.trim()).filter(id => id);
+      console.log(`[Query API] LLM identified primary source IDs: [${identifiedSourceIds.join(', ')}]`);
+      // Remove the source line from the response text shown to the user
+      processedText = rawResponseText.replace(/\nPrimary Sources: .*/, '').trim();
+    } else {
+      console.log("[Query API] LLM did not provide explicit primary sources or indicated None.");
+      // Keep identifiedSourceIds as empty
+    }
+
+    // Filter the original context sources based on the IDs provided by the LLM
+    const sources = assembledContext.sources
+      .filter(source => identifiedSourceIds.includes(source.id))
+      .map(source => ({ // Ensure format matches expected output
+        id: source.id,
+        title: source.title,
+        type: source.document_type
+      }));
+    // --- End Response Processing ---
 
     // Store in cache
     if (useCache) {
       queryCache.set(cacheKey, {
         query,
-        response,
-        sources,
+        response: processedText, // Cache the cleaned text
+        sources, // Cache the filtered sources
         timestamp: Date.now(),
         userId
       });
@@ -145,8 +160,8 @@ export async function POST(request: NextRequest) {
 
     // Return the response
     return NextResponse.json({
-      response,
-      sources,
+      response: processedText, // Return the cleaned text
+      sources, // Return the filtered sources
       metadata: {
         tokenCount: llmResponse.usage.totalTokens,
         contextSize: assembledContext.tokenCount,

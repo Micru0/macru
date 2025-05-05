@@ -5,6 +5,7 @@ import { ChatInterface, ChatMessageType } from "@/components/ui/chat-interface";
 import { sendQueryToLLM, createUserMessage, createAssistantMessage, conversationStorage } from "@/lib/services/chat-service";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
+import { v4 as uuidv4 } from "uuid";
 
 export default function DashboardPage() {
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
@@ -35,11 +36,24 @@ export default function DashboardPage() {
       
       const llmResponse = await sendQueryToLLM(query, messages);
       
-      const assistantMessage = createAssistantMessage(
-        llmResponse.content,
-        llmResponse.sources
-      );
-      setMessages((prev) => [...prev, assistantMessage]);
+      let actionPayload = undefined;
+      if (llmResponse.proposedAction) {
+        actionPayload = {
+          ...llmResponse.proposedAction,
+          id: `action-${uuidv4()}`
+        };
+      }
+
+      const assistantMessage = {
+        id: uuidv4(),
+        content: llmResponse.content,
+        isUser: false,
+        timestamp: new Date(),
+        sources: llmResponse.sources || [],
+        ...(actionPayload && { action: actionPayload })
+      };
+      
+      setMessages((prev) => [...prev, assistantMessage as ChatMessageType]);
     } catch (error) {
       console.error("Error submitting query:", error);
       toast({

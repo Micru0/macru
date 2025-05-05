@@ -90,7 +90,9 @@ export type Database = {
           connector_type: string
           created_at: string
           expires_at: string | null
+          expiry_date: string | null
           id: string
+          raw_response: Json | null
           refresh_token: string | null
           scopes: string[] | null
           updated_at: string
@@ -103,7 +105,9 @@ export type Database = {
           connector_type: string
           created_at?: string
           expires_at?: string | null
+          expiry_date?: string | null
           id?: string
+          raw_response?: Json | null
           refresh_token?: string | null
           scopes?: string[] | null
           updated_at?: string
@@ -116,7 +120,9 @@ export type Database = {
           connector_type?: string
           created_at?: string
           expires_at?: string | null
+          expiry_date?: string | null
           id?: string
+          raw_response?: Json | null
           refresh_token?: string | null
           scopes?: string[] | null
           updated_at?: string
@@ -127,36 +133,69 @@ export type Database = {
       }
       documents: {
         Row: {
+          content_status: string | null
           created_at: string | null
+          due_date: string | null
           error_message: string | null
-          file_path: string
+          event_end_time: string | null
+          event_start_time: string | null
+          file_path: string | null
           file_type: string | null
           id: string
+          location: string | null
           metadata: Json | null
+          participants: string[] | null
+          priority: string | null
+          source_created_at: string | null
+          source_id: string | null
+          source_type: string | null
+          source_updated_at: string | null
           status: string
           title: string
           updated_at: string | null
           user_id: string
         }
         Insert: {
+          content_status?: string | null
           created_at?: string | null
+          due_date?: string | null
           error_message?: string | null
-          file_path: string
+          event_end_time?: string | null
+          event_start_time?: string | null
+          file_path?: string | null
           file_type?: string | null
           id?: string
+          location?: string | null
           metadata?: Json | null
+          participants?: string[] | null
+          priority?: string | null
+          source_created_at?: string | null
+          source_id?: string | null
+          source_type?: string | null
+          source_updated_at?: string | null
           status?: string
           title: string
           updated_at?: string | null
           user_id: string
         }
         Update: {
+          content_status?: string | null
           created_at?: string | null
+          due_date?: string | null
           error_message?: string | null
-          file_path?: string
+          event_end_time?: string | null
+          event_start_time?: string | null
+          file_path?: string | null
           file_type?: string | null
           id?: string
+          location?: string | null
           metadata?: Json | null
+          participants?: string[] | null
+          priority?: string | null
+          source_created_at?: string | null
+          source_id?: string | null
+          source_type?: string | null
+          source_updated_at?: string | null
           status?: string
           title?: string
           updated_at?: string | null
@@ -385,6 +424,18 @@ export type Database = {
           query_embedding: string
           match_threshold?: number
           match_count?: number
+          filter_user_id?: string
+          filter_source_types?: string[]
+          filter_event_start_time_before?: string
+          filter_event_start_time_after?: string
+          filter_event_end_time_before?: string
+          filter_event_end_time_after?: string
+          filter_due_date_before?: string
+          filter_due_date_after?: string
+          filter_content_status?: string
+          filter_priority?: string
+          filter_location?: string
+          filter_participants?: string[]
         }
         Returns: {
           id: string
@@ -396,6 +447,13 @@ export type Database = {
           similarity: number
           document_title: string
           document_type: string
+          event_start_time: string
+          event_end_time: string
+          due_date: string
+          content_status: string
+          priority: string
+          location: string
+          participants: string[]
         }[]
       }
       sparsevec_out: {
@@ -569,5 +627,3 @@ export const Constants = {
     },
   },
 } as const
-
-export {};

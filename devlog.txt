@@ -893,6 +893,32 @@ Each entry follows this format:
   - Add UI indicators for which documents have successfully populated structured metadata.
   - Implement the actual hybrid query logic in Task 15.3.
 
+### [2025-05-04] LLM Response & Action Handling Refinements
+- **Files Affected**:
+  - `app/api/llm/test/route.ts` (prompt instructions updated, tool definition temporarily removed)
+  - `lib/services/chat-service.ts` (updated `sendQueryToLLM`, `ApiResponse`, `ChatServiceResponse`)
+  - `app/dashboard/page.tsx` (updated `handleSubmitQuery` for action ID assignment)
+  - `components/ui/chat-interface.tsx` (streamlined action confirmation UI, fixed types)
+  - `app/api/connectors/google-calendar/auth/start/route.ts` (added `calendar.events` scope)
+  - `app/api/action/route.ts` (fixed logger calls, variable scopes, types)
+  - `supabase/migrations/20240101000013_update_action_logs_rls_policy.sql` (new)
+- **Dependencies Added**: None
+- **Description**: Addressed LLM response inconsistencies and fixed the action execution flow for Google Calendar events. Streamlined the UI for action confirmation.
+- **Implementation Notes**:
+  - Updated LLM prompt instructions in `/api/llm/test` to encourage better list formatting and allow context-grounded synthesis when explicitly requested.
+  - Refactored action proposal handling in `chat-service` and the dashboard page to correctly pass action details (with a unique ID assigned) to the UI.
+  - Resolved Google Calendar event creation failure by adding the required `calendar.events` scope (requires user re-authentication) and fixing `ActionLogger` calls and variable scopes in the `/api/action` route.
+  - Updated the `action_logs` table RLS policy via SQL (and added corresponding migration file) to allow logging from the service role.
+  - Removed the extra confirmation dialog step; action details and Confirm/Reject buttons are now displayed directly in the chat flow for faster execution.
+  - Fixed various TypeScript type errors and linter warnings related to these changes.
+- **Potential Impacts**:
+  - LLM responses should be better formatted.
+  - Google Calendar event creation action now works correctly after re-authentication.
+  - Action confirmation flow is faster and more integrated into the chat.
+- **Future Considerations**:
+  - Re-introduce and test the tool definition in the LLM prompt once the underlying Gemini API issue is resolved or a workaround is found.
+  - Implement UI updates to display the action execution status more clearly after confirmation/rejection.
+
 ## Dev Log Entry: Google Calendar Connector Implementation & Debugging
 
 **Objective:** Implement Task #11 - Google Calendar Data Connector.
@@ -1043,3 +1069,49 @@ Each entry follows this format:
 - **Future Considerations**:
   - Implement storing and retrieving `lastSyncTime` for the connector to enable true delta syncs.
   - Add more sophisticated server-side filtering in `fetchData` based on event properties (e.g., only include if user is attendee or organizer) if `eventTypes` filtering isn't sufficient.
+
+### [2025-05-05] LLM Prompt Refinement for Action Scheduling
+- **Files Affected**:
+  - `app/api/llm/test/route.ts` (Updated `formatPromptWithHistoryAndContext`)
+  - `devlog.txt` (Updated)
+- **Dependencies Added**: None
+- **Description**: Refined the LLM prompt instructions to streamline the process for executing actions, specifically targeting the multi-turn confirmation issue observed with Google Calendar event scheduling.
+- **Implementation Notes**:
+  - Identified that the previous prompt required the LLM to first confirm parameters and then propose the action in a *subsequent* turn, leading to extra user interaction.
+  - Modified instruction #3 (Tool Use) in `formatPromptWithHistoryAndContext`:
+    - If all required parameters for an action are seemingly available from the query/context/history, the LLM is now instructed to state the understood parameters AND propose the function call in the *same* response, skipping the explicit confirmation step.
+    - If parameters are missing, it asks for them. Upon receiving the final missing parameter, the LLM should immediately propose the function call in its *next* response without re-confirming.
+- **Potential Impacts**: 
+  - Action execution, particularly for scheduling, should be significantly faster and require fewer conversational turns.
+  - Reduces user effort in confirming details already provided or inferred.
+- **Future Considerations**: 
+  - Monitor LLM behavior with the new prompt to ensure it correctly identifies parameters and proposes actions reliably without being overly aggressive or making incorrect assumptions.
+  - Test with various phrasing for scheduling requests.
+
+### [2025-05-05] User Timezone Preference
+- **Files Affected**:
+  - `supabase/migrations/<timestamp>_add_timezone_to_profiles.sql` (created, applied manually)
+  - `components/forms/ProfileForm.tsx` (updated)
+  - `lib/services/user-service.ts` (updated `Profile` type, `updateUserProfile`, `getUserProfile`)
+  - `app/api/llm/test/route.ts` (updated prompt formatting, timezone fetching)
+  - `PRD.txt` (updated migration workflow notes)
+- **Dependencies Added**: None
+- **Description**: Implemented user-specific timezone preferences to streamline scheduling actions.
+- **Implementation Notes**:
+  - Added nullable `timezone` TEXT column to `profiles` table (migration file created, applied via Supabase Studio).
+  - Added timezone selector dropdown (using `shadcn/ui/select`) to the profile form (`ProfileForm.tsx`).
+  - Updated `updateUserProfile` service function to save the selected timezone.
+  - Updated `getUserProfile` service function to select the `timezone` column.
+  - Modified `/api/llm/test` route to fetch the user's profile and timezone.
+  - Updated the LLM prompt (`formatPromptWithHistoryAndContext`) to:
+    - Include the user's default timezone if set.
+    - Instruct the LLM to use the default timezone and *not* ask for it unless the user specifies a different one.
+  - Resolved Supabase schema cache issues related to the new column.
+  - Fixed client-side authentication errors in `updateUserProfile` by switching to `createBrowserClient`.
+  - Fixed `shadcn/ui` Select component error related to empty string values.
+- **Potential Impacts**:
+  - LLM no longer needs to ask for timezone during scheduling if the user has set a default preference.
+  - Scheduling actions are faster and require less user input.
+- **Future Considerations**:
+  - Expand the list of available timezones in `ProfileForm.tsx`.
+  - Implement logic in `/api/llm/test` to robustly parse date/time strings from LLM action parameters and append the user's timezone if it's missing (currently has TODO placeholders).

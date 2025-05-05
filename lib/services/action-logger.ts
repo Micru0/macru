@@ -21,25 +21,21 @@ export class ActionLogger {
   /**
    * Logs an action attempt to the action_logs table.
    *
-   * @param {LogActionParams} logParams - The parameters for the log entry.
-   * @param {SupabaseClient<Database>} [supabaseClient] - Optional Supabase client instance. If not provided, a new browser client is created.
-   *                                                    For server-side logging, ensure a server client instance is passed.
+   * @param {string} userId - The ID of the user performing the action.
+   * @param {string} actionType - The type identifier of the action (e.g., 'googleCalendar.createEvent').
+   * @param {'attempted' | 'success' | 'failed'} status - The outcome status of the action attempt.
+   * @param {Record<string, any>} details - Additional details or parameters related to the action or outcome (e.g., { error: 'message' } or { eventId: '123' } or action parameters).
+   * @param {SupabaseClient<Database>} [supabaseClient] - Optional Supabase client instance.
    */
-  static async logAction(
-    {
-      userId,
-      actionType,
-      params,
-      success,
-      message,
-      error,
-      request,
-    }: LogActionParams,
+  static async log(
+    userId: string,
+    actionType: string,
+    status: 'attempted' | 'success' | 'failed',
+    details: Record<string, any> = {},
     supabaseClient?: SupabaseClient<Database>
   ): Promise<void> {
     // Use provided client or create a new browser client by default.
-    // NOTE: For server-side usage where request context/cookies are needed,
-    // the caller MUST pass a pre-configured server client instance.
+    // Caller MUST pass a server client for server-side usage.
     const supabase = supabaseClient || createBrowserClient<
       Database
     >(
@@ -47,32 +43,28 @@ export class ActionLogger {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
 
-    // Extract IP and User Agent safely
-    const ip_address = request?.headers['x-forwarded-for']?.toString() || request?.ip || undefined;
-    const user_agent = request?.headers['user-agent']?.toString() || undefined;
-
-    // Format error message
-    const error_message = error instanceof Error ? error.message : typeof error === 'string' ? error : undefined;
-
-    try {
-      const { error: logError } = await supabase.from('action_logs').insert({
+    // Prepare log record
+    const logRecord = {
         user_id: userId,
         action_type: actionType,
-        params_snapshot: params, // Store parameters as JSONB
-        success,
-        message: message || null,
-        error: error_message || null,
-        ip_address: ip_address || null,
-        user_agent: user_agent || null,
-      });
+        success: status === 'success',
+        message: status === 'success' ? (details.message || 'Action successful') : null,
+        error: status === 'failed' ? (typeof details.error === 'string' ? details.error : JSON.stringify(details.error)) : null,
+        params_snapshot: status === 'attempted' ? details : (details.params || null), // Log params on attempt, or if provided in details
+        // Add other fields like ip_address, user_agent if available from request context
+    };
+
+    try {
+      const { error: logError } = await supabase.from('action_logs').insert(logRecord);
 
       if (logError) {
-        console.error('Failed to log action to database:', logError);
-        console.error('Fallback log:', { userId, actionType, success, error: error_message });
+        console.error(`[ActionLogger] Failed to log action (${actionType}, Status: ${status}):`, logError);
+        // Fallback log to console if DB fails
+        console.error('[ActionLogger Fallback] Log Details:', JSON.stringify(logRecord));
       }
     } catch (err) {
-      console.error('Unexpected error during action logging:', err);
-      console.error('Fallback log (unexpected error):', { userId, actionType, success, error: error_message });
+      console.error(`[ActionLogger] Unexpected error during logging (${actionType}, Status: ${status}):`, err);
+       console.error('[ActionLogger Fallback] Log Details:', JSON.stringify(logRecord));
     }
   }
 } 

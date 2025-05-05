@@ -9,6 +9,7 @@ export interface SourceChunk {
   similarity?: number; // Similarity score from vector search
   metadata?: Record<string, any>; // Optional metadata (e.g., page number)
   documentType?: string; // Added document type
+  source_url?: string | null; // Original URL of the source document (optional)
 }
 
 // Define the structure for a citation object (Internal use for now)

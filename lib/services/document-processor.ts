@@ -172,12 +172,16 @@ export class DocumentProcessor {
     const final_participants = structuredData.participants; // string[] or null
     const final_location = structuredData.location; // String or null
 
+    // --- Extract Source URL ---
+    const sourceUrl = providedMetadata?.url as string | undefined ?? null; // Extract URL from metadata
+
     // --- Prepare metadata for JSONB --- 
     // Exclude keys handled by dedicated columns or timestamps
     const jsonbMetadata = { ...(providedMetadata || {}) };
     delete jsonbMetadata.createdTime; 
     delete jsonbMetadata.lastEditedTime; 
     delete jsonbMetadata.structured; // Also remove the nested structured data object itself
+    delete jsonbMetadata.url; // Remove the URL from the JSONB metadata
 
     const insertResult = await this.supabase
       .from('documents')
@@ -189,6 +193,7 @@ export class DocumentProcessor {
         status: 'processing' as DocumentStatus, // Initial status
         source_type: sourceType, // Store source type
         source_id: sourceId, // Store external source ID
+        source_url: sourceUrl, // Store the extracted source URL
         
         // Timestamps from specific args or metadata fallback
         source_created_at: sourceCreatedAt,

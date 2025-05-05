@@ -129,7 +129,7 @@ Goal is to get a working end-to-end flow for File Upload -> Query -> Response as
 7. Risks and Mitigations
 	1	Technical Complexity (CAG/MEM0):
 	◦	Risk: Efficiently implementing retrieval, large context handling, caching, and secure personalized memory can be challenging.
-	◦	Mitigation: Start simple, leverage existing tools (pgvector), focus on modular design (memory.ts, llmRouter.ts), test thoroughly, and iterate. Rely on the large context of Gemini 2.5 Pro initially to simplify retrieval logic, but plan for more sophisticated RAG.
+	◦	Mitigation: Start simple, leverage existing tools (pgvector), focus on modular design (memory.ts, llmRouter.ts), test thoroughly, and iterate. Rely on the large context of Gemini 2.5 Pro initially to simplify retrieval logic, but plan for more sophisticated RAG. Observe retrieval threshold: Keep an eye on the retrieval results (e.g., 'Found X relevant chunks') with the current threshold (e.g., 0.6). If it frequently misses relevant chunks or includes too many irrelevant ones, tuning will be required.
 	2	Security & Privacy:
 	◦	Risk: Handling sensitive user data requires robust security. Data leaks, unauthorized access, or insecure handling of API keys/actions could be catastrophic. MEM0 privacy is paramount. Action layer introduces risks.
 	◦	Mitigation: Strict RLS on Supabase, encryption for sensitive data (MEM0, credentials), secure handling of API keys, mandatory user confirmation (default) for actions, strong warnings for disabling confirmation, regular security reviews, dependency scanning. Conduct testing in isolated environments.
@@ -142,6 +142,11 @@ Goal is to get a working end-to-end flow for File Upload -> Query -> Response as
 	5	Scope Creep / MVP Definition:
 	◦	Risk: The project is ambitious; trying to build too much in the initial phase could lead to delays or a lack of focus.
 	◦	Mitigation: Strictly adhere to the phased roadmap. Focus Phase 1 relentlessly on the core file query loop + basic MEM0. Defer non-essential features and integrations. Make conscious decisions about what constitutes the minimal viable product.
+	6	Database Schema Drift / Migration Conflicts:
+	◦	Risk: Making direct database changes or altering functions (like Supabase Postgres functions) without first checking existing migrations (`supabase/migrations/`) can lead to conflicts, errors during deployment or local resets (`supabase db reset`), and inconsistencies between the codebase definition and the actual database state (as seen with the `match_documents` function needing updates).
+	◦	Mitigation:
+		*   **Development Environment Note:** This project does **not** use Docker Desktop or a local Supabase instance. All database schema changes (ALTER TABLE, CREATE FUNCTION, etc.) are applied **directly** via the Supabase Studio SQL Editor against the live development database.
+		*   **Migration File Workflow:** ALWAYS check the `supabase/migrations/` directory for existing migrations related to the tables or functions being modified. If changes are needed, create a NEW migration file using `supabase migration new <description>`. Populate this file with the required SQL. Apply the changes manually via the Supabase Studio SQL Editor. This ensures schema changes are captured in version control even though local CLI commands like `db reset` or `migration up` are not used.
 8. Appendix
 	•	Initial Tech Stack Summary: Next.js 14, TypeScript, Tailwind CSS, shadcn/ui, Supabase (Auth, Postgres w/ pgvector, Storage), Gemini 2.5 Pro (default LLM).
 

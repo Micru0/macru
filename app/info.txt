@@ -1,0 +1,233 @@
+You added this :
+
+import { SyntaxHighlighter } from "@/components/ui/syntax-highlighter";
+import { CopyButton } from "@/components/ui/copy-button";
+import { coldarkDark } from "@/lib/utils";
+
+You removed this :
+
+<div
+className={cn(
+  "flex w-full items-start gap-x-2 sm:gap-x-4 py-3 sm:py-6",
+  isUser ? "justify-end" : "justify-start"
+)}
+>
+<div
+  className={cn(
+    "flex shrink-0 select-none items-center justify-center rounded-full",
+    isMobile ? "h-6 w-6" : "h-8 w-8", 
+    isUser
+      ? "bg-primary text-primary-foreground"
+      : "bg-muted text-muted-foreground"
+  )}
+>
+  {isUser ? 
+    <User className={isMobile ? "h-4 w-4" : "h-5 w-5"} /> : 
+    <Bot className={isMobile ? "h-4 w-4" : "h-5 w-5"} />
+  }
+
+You added this :
+
+<div className={`group relative flex items-start md:-ml-12 ${isUser ? 'justify-end' : 'justify-start'}`}>
+      <div className={`flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-md border shadow ${isUser ? "bg-background" : "bg-primary text-primary-foreground"}`}>
+        {isUser ? <User size={16} /> : <Bot size={16} />}
+      </div>
+    </div>
+
+You removed this :
+
+<div className="flex flex-col max-w-2xl w-auto">
+        <div
+          className={cn(
+            "rounded-lg px-3 py-2 sm:px-4 sm:py-2 shadow",
+            isUser
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted text-foreground"
+          )}
+        >
+
+You added this :
+
+<div className={`ml-4 flex-1 space-y-2 overflow-hidden px-1 ${isUser ? 'text-right' : ''}`}>
+<div className="prose prose-sm dark:prose-invert prose-p:leading-relaxed prose-pre:p-0 break-words max-w-none">
+
+You removed this :
+
+<div className="prose prose-sm dark:prose-invert max-w-full text-sm sm:text-base">
+              <ReactMarkdown 
+                remarkPlugins={[remarkGfm]} 
+                rehypePlugins={[rehypeRaw]}
+                components={{
+                  a: ({ href, children }) => (
+                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                      {children}
+                    </a>
+                  ),
+                  ul: ({ children }) => <ul className="list-disc pl-3 sm:pl-4 mb-2">{children}</ul>,
+                  ol: ({ children }) => <ol className="list-decimal pl-3 sm:pl-4 mb-2">{children}</ol>,
+                  li: ({ children }) => <li className="mb-1">{children}</li>,
+                  // Handle code blocks: apply styling to pre for blocks, code for inline
+                  pre: ({ children, ...props }) => (
+                    <pre className="bg-muted p-1 sm:p-2 rounded-md overflow-x-auto text-xs sm:text-sm font-mono my-1 sm:my-2" {...props}>
+                      {children}
+                    </pre>
+                  ),
+                  // @ts-ignore - inline is provided by react-markdown
+                  code: ({ node, inline, className, children, ...props }) => {
+                    if (inline) {
+                      // Style inline code differently
+                      return <code className="bg-muted px-1 py-0.5 rounded text-xs sm:text-sm font-mono" {...props}>{children}</code>;
+                    }
+                    // For code within pre (block code), don't add extra styling here, 
+                    // rely on the parent pre handler above.
+                    // Pass className for syntax highlighting if applicable.
+                    const match = /language-(\w+)/.exec(className || '');
+
+You added this :
+
+<ReactMarkdown
+remarkPlugins={[remarkGfm]}
+components={{
+  // Customize rendering of code blocks
+  code({ node, className, children, ...props }) {
+    const match = /language-(\w+)/.exec(className || '');
+    // Block code
+    if (typeof children === 'string' && children.includes('\n')) {
+
+You removed this :
+
+<code className={className} {...props}>
+{children}
+</code>
+
+You added this :
+
+<div className="relative">
+<SyntaxHighlighter
+  style={coldarkDark}
+  language={match ? match[1] : undefined}
+  PreTag="div"
+  className="!p-4 !my-2 rounded-md"
+  {...props}
+>
+  {String(children).replace(/\n$/, '')}
+</SyntaxHighlighter>
+<CopyButton code={String(children).replace(/\n$/, '')} />
+</div>
+
+You removed this :
+
+}}
+>
+  {message}
+</ReactMarkdown>
+</div>
+)}
+</div>
+{timestamp && (
+<div className="text-[10px] sm:text-xs text-muted-foreground mt-1">
+{new Intl.DateTimeFormat("en-US", {
+hour: "numeric",
+minute: "numeric",
+}).format(timestamp)}
+</div>
+)}
+{sources && sources.length > 0 && (
+<div className="mt-2 pt-2 border-t border-border/50">
+<Button
+variant="outline"
+size="sm"
+className="text-xs h-auto px-2 py-1"
+onClick={() => setShowSources(!showSources)}
+>
+<ListTree className="mr-1 h-3 w-3" />
+{showSources ? 'Hide' : 'Show'} Sources ({sources.length})
+</Button>
+{showSources && (
+<div className="mt-2 space-y-1 text-xs text-muted-foreground">
+  {sources.map((source) => (
+    <div key={source.documentId || source.id} className="flex items-center">
+      <FileText className="mr-1.5 h-3 w-3 flex-shrink-0" />
+      {source.documentType === 'notion' ? 'Notion: '
+        : source.documentType === 'file_upload' ? 'File: '
+        : source.documentType === 'google_calendar' ? 'Calendar: ' 
+        : ''}
+      {source.documentName || 'Unknown Source'}
+      {source.similarity && (
+        <span className="ml-1.5 text-xs text-muted-foreground/70">({source.similarity.toFixed(2)})</span>
+      )}
+    </div>
+  ))}
+</div>
+)}
+
+You added this :
+
+                  // Inline code
+                  return (
+                    <code className="bg-muted px-[0.4rem] py-[0.2rem] font-mono text-sm rounded-sm" {...props}>
+                      {children}
+                    </code>
+                  );
+                },
+                // Customize rendering of links
+                a: ({ node, ...props }) => (
+                  <a {...props} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline" />
+                )
+              }}
+            >
+              {message}
+            </ReactMarkdown>
+          )}
+          {sources && sources.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-border/50">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs h-auto px-2 py-1"
+                onClick={() => setShowSources(!showSources)}
+              >
+                <ListTree className="mr-1 h-3 w-3" />
+                {showSources ? 'Hide' : 'Show'} Sources ({sources.length})
+              </Button>
+              {showSources && (
+                <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                  {sources.map((source, index) => (
+                    <div key={source.documentId || index} className="flex items-center">
+                      <FileText className="mr-1.5 h-3 w-3 flex-shrink-0" />
+                      {source.source_url ? (
+                        <a
+                          href={source.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="hover:underline truncate"
+                          title={`${source.documentName} (${source.documentType}) - ${source.similarity ? source.similarity.toFixed(2) : 'N/A'} - ${source.source_url}`}
+                        >
+                          {source.documentName || 'Unknown Source'} ({source.documentType})
+                        </a>
+                      ) : (
+                        <span
+                          className="truncate"
+                          title={`${source.documentName} (${source.documentType}) - ${source.similarity ? source.similarity.toFixed(2) : 'N/A'}`}
+                        >
+                          {source.documentName || 'Unknown Source'} ({source.documentType})
+                        </span>
+                      )}
+                      {source.similarity && (
+                        <span className="ml-1.5 text-xs text-muted-foreground/70">({source.similarity.toFixed(2)})</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {timestamp && (
+          <div className="text-[10px] sm:text-xs text-muted-foreground mt-1">
+            {new Intl.DateTimeFormat("en-US", {
+              hour: "numeric",
+              minute: "numeric",
+            }).format(timestamp)}
+
+            

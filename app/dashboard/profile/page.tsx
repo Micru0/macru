@@ -21,8 +21,19 @@ async function ProfileContent() {
     }
   );
 
-  const profile: Profile = await getUserProfile(supabase);
-  
+  // Fetch profile and handle potential errors
+  const profileResult = await getUserProfile(supabase);
+
+  if (profileResult && 'error' in profileResult) {
+    console.error("Error fetching profile for ProfilePage:", profileResult.error);
+    // Throw an error, converting the error object/value to a string for the message
+    const errorString = JSON.stringify(profileResult.error) || 'Unknown error';
+    throw new Error(`Failed to load profile: ${errorString}`);
+  }
+
+  // Now it's safe to assert the type
+  const profile: Profile = profileResult;
+
   return (
     <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8 space-y-8">
       <div>

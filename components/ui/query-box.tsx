@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { SendIcon, RefreshCcw } from "lucide-react";
 import { Button } from "./button";
 import { Textarea } from "./textarea";
+import { useMediaQuery } from "@/lib/hooks/use-media-query";
 
 export interface QueryBoxProps {
   onSubmit: (query: string) => void;
@@ -24,6 +25,7 @@ export function QueryBox({
 }: QueryBoxProps) {
   const [query, setQuery] = useState(initialValue);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isMobile = useMediaQuery("(max-width: 640px)");
 
   // Auto-resize the textarea based on content
   useEffect(() => {
@@ -33,11 +35,11 @@ export function QueryBox({
       
       // Set the height based on scrollHeight with a maximum height
       const scrollHeight = textareaRef.current.scrollHeight;
-      const maxHeight = 200; // Maximum height in pixels
+      const maxHeight = isMobile ? 150 : 200; // Maximum height in pixels, smaller on mobile
       
       textareaRef.current.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
     }
-  }, [query]);
+  }, [query, isMobile]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,7 +72,7 @@ export function QueryBox({
   };
 
   return (
-    <div className="w-full p-2 pb-12 pt-3">
+    <div className="w-full p-1 sm:p-2 pb-10 sm:pb-12 pt-2 sm:pt-3">
       <form onSubmit={handleSubmit} className="relative">
         <Textarea
           ref={textareaRef}
@@ -78,7 +80,7 @@ export function QueryBox({
           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="min-h-[60px] w-full border rounded-lg focus:ring-2 focus:ring-offset-2 focus:ring-offset-background pl-4 pr-14 py-3 overflow-y-auto"
+          className="min-h-[50px] sm:min-h-[60px] w-full border rounded-lg focus:ring-2 focus:ring-offset-2 focus:ring-offset-background pl-3 sm:pl-4 pr-12 sm:pr-14 py-2 sm:py-3 text-sm sm:text-base overflow-y-auto"
           disabled={isLoading || disabled}
           rows={1}
           style={{ 
@@ -87,29 +89,29 @@ export function QueryBox({
           }}
         />
 
-        <div className="absolute right-2 bottom-2 flex space-x-1">
+        <div className="absolute right-2 bottom-1 sm:bottom-2 flex space-x-1">
           {onReset && (
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="h-8 w-8"
+              size={isMobile ? "xs" : "icon"}
+              className="h-7 w-7 sm:h-8 sm:w-8"
               onClick={handleReset}
               disabled={isLoading || disabled}
               title="Clear conversation"
             >
-              <RefreshCcw className="h-4 w-4" />
+              <RefreshCcw className="h-3 w-3 sm:h-4 sm:w-4" />
             </Button>
           )}
           <Button
             type="submit"
             variant="default"
-            size="icon"
-            className="h-8 w-8 rounded-full bg-primary hover:bg-primary/90"
+            size={isMobile ? "xs" : "icon"}
+            className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-primary hover:bg-primary/90"
             disabled={!query.trim() || isLoading || disabled}
             title="Send message"
           >
-            <SendIcon className="h-4 w-4 text-primary-foreground" />
+            <SendIcon className="h-3 w-3 sm:h-4 sm:w-4 text-primary-foreground" />
           </Button>
         </div>
       </form>
