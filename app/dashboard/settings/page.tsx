@@ -13,18 +13,19 @@ import { ConnectionStatus, SyncStatus, ConnectorType } from '@/lib/types/data-co
 import { useAuth } from '@/lib/context/auth-context';
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/use-toast";
-import { ExternalLink, Link2, Unlink2, RefreshCw, CalendarDays } from 'lucide-react';
+import { ExternalLink, Link2, Unlink2, RefreshCw, CalendarDays, Mail } from 'lucide-react';
 import AuditTrailViewer from '@/components/ui/audit-trail-viewer';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast as sonnerToast } from "sonner";
-import { getUserProfile } from '@/lib/services/user-service';
+import { getUserProfile, Profile as UserProfileData } from '@/lib/services/user-service';
 import { Database } from '@/lib/types/database.types';
 import { createBrowserClient } from '@supabase/ssr';
 import { updateConfirmationLevelAction } from '@/app/actions/settings';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { GmailConnector } from '@/lib/connectors/gmail';
 
 type ConfirmationLevel = Database['public']['Tables']['profiles']['Row']['action_confirmation_level'];
-type Profile = Database['public']['Tables']['profiles']['Row'] & {
+type UserProfile = Database['public']['Tables']['profiles']['Row'] & {
   action_confirmation_level?: ConfirmationLevel | null;
 };
 
@@ -50,40 +51,40 @@ export default function SettingsPage() {
   , []);
 
   const [defaultLLM, setDefaultLLM] = useState<ServiceType>('gemini');
-  const [notionStatus, setNotionStatus] = useState<ConnectorConnectionStatus | null>(null);
-  const [notionLoading, setNotionLoading] = useState(true);
+  const [notionStatus, setNotionStatus] = useState<ConnectionStatus | null>(null);
+  const [calendarStatus, setCalendarStatus] = useState<ConnectionStatus | null>(null);
+  const [gmailStatus, setGmailStatus] = useState<ConnectionStatus | null>(null);
+  const [isLoadingNotion, setIsLoadingNotion] = useState(true);
+  const [isLoadingCalendar, setIsLoadingCalendar] = useState(true);
+  const [isLoadingGmail, setIsLoadingGmail] = useState(true);
   const [isConnectingNotion, setIsConnectingNotion] = useState<boolean>(false);
   const [isDisconnectingNotion, setIsDisconnectingNotion] = useState<boolean>(false);
   const [isSyncingNotion, setIsSyncingNotion] = useState<boolean>(false);
-
-  const [gcalStatus, setGCalStatus] = useState<ConnectorConnectionStatus | null>(null);
-  const [gcalLoading, setGCalLoading] = useState(true);
-  const [isConnectingGCal, setIsConnectingGCal] = useState<boolean>(false);
-  const [isDisconnectingGCal, setIsDisconnectingGCal] = useState<boolean>(false);
-  const [isSyncingGCal, setIsSyncingGCal] = useState<boolean>(false);
-
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [isConnectingCalendar, setIsConnectingCalendar] = useState<boolean>(false);
+  const [isDisconnectingCalendar, setIsDisconnectingCalendar] = useState<boolean>(false);
+  const [isSyncingCalendar, setIsSyncingCalendar] = useState<boolean>(false);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoadingProfile, setIsLoadingProfile] = useState<boolean>(true);
-  const [confirmationLevel, setConfirmationLevel] = useState<ConfirmationLevel>('all');
+  const [confirmationLevel, setConfirmationLevel] = useState<ConfirmationLevel | null>(null);
+  const [isLoadingLevel, setIsLoadingLevel] = useState<boolean>(true);
+  const [isUpdatingLevel, setIsUpdatingLevel] = useState<boolean>(false);
+  const [isSyncingGmail, setIsSyncingGmail] = useState<boolean>(false);
 
   const fetchProfile = useCallback(async () => {
     setIsLoadingProfile(true);
+    setIsLoadingLevel(true);
     try {
-      // Explicitly handle potential error return type from getUserProfile
       const fetchedProfileResult = await getUserProfile(supabase);
       if (fetchedProfileResult && !('error' in fetchedProfileResult)) {
-        // It's safe to treat fetchedProfileResult as Profile here
-        const profileData = fetchedProfileResult as Profile;
+        const profileData = fetchedProfileResult as UserProfile;
         setProfile(profileData);
         const currentLevel = profileData.action_confirmation_level;
         if (currentLevel) {
           setConfirmationLevel(currentLevel);
         } else {
-          // Default if null or undefined in DB
           setConfirmationLevel('all');
         }
       } else {
-        // Log the error if getUserProfile returned an error object
         console.error("Failed to fetch profile:", fetchedProfileResult?.error);
         setProfile(null);
       }
@@ -92,6 +93,7 @@ export default function SettingsPage() {
       setProfile(null);
     } finally {
       setIsLoadingProfile(false);
+      setIsLoadingLevel(false);
     }
   }, [supabase]);
 
@@ -113,179 +115,169 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (user?.id) {
-      // Fetch Notion Status
-      setNotionLoading(true);
+      setIsLoadingNotion(true);
       fetch('/api/connectors/notion/status')
-        .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to fetch Notion status')))
-        .then(data => setNotionStatus(data))
-        .catch(err => {
-          console.error("Error fetching Notion status:", err);
-          setNotionStatus({ isConnected: false, error: err.message });
+        .then(res => res.json())
+        .then((data: ConnectionStatus) => {
+          setNotionStatus(data);
         })
-        .finally(() => setNotionLoading(false));
+        .catch(error => {
+          console.error("Error fetching Notion status:", error);
+          setNotionStatus({ connectorType: ConnectorType.NOTION, isConnected: false, error: 'Failed to fetch status' });
+        })
+        .finally(() => setIsLoadingNotion(false));
 
-      // Fetch Google Calendar Status
-      setGCalLoading(true);
+      setIsLoadingCalendar(true);
       fetch('/api/connectors/google-calendar/status')
-        .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to fetch Google Calendar status')))
-        .then(data => setGCalStatus(data))
-        .catch(err => {
-          console.error("Error fetching Google Calendar status:", err);
-          setGCalStatus({ isConnected: false, error: err.message });
+        .then(res => res.json())
+        .then((data: ConnectionStatus) => {
+          setCalendarStatus(data);
         })
-        .finally(() => setGCalLoading(false));
+        .catch(error => {
+          console.error("Error fetching Google Calendar status:", error);
+          setCalendarStatus({ connectorType: ConnectorType.GOOGLE_CALENDAR, isConnected: false, error: 'Failed to fetch status' });
+        })
+        .finally(() => setIsLoadingCalendar(false));
+
+      setIsLoadingGmail(true);
+      fetch('/api/connectors/gmail/status')
+        .then(res => res.json())
+        .then((data: ConnectionStatus) => {
+          setGmailStatus(data);
+        })
+        .catch(error => {
+          console.error("Error fetching Gmail status:", error);
+          setGmailStatus({ connectorType: ConnectorType.GMAIL, isConnected: false, error: 'Failed to fetch status' });
+        })
+        .finally(() => setIsLoadingGmail(false));
     }
   }, [user?.id]);
 
   useEffect(() => {
-    // Display toast messages based on query parameters from redirects
     const success = searchParams.get('success');
     const error = searchParams.get('error');
     const message = searchParams.get('message');
 
-    if (success) {
-      toast({
-        title: "Connection Successful",
-        description: message || `${success.replace(/_/g, ' ')} connection established.`,
-        variant: "default",
-      });
-      // Clean the URL
-      router.replace('/dashboard/settings', { scroll: false });
-    }
+    const handleSuccess = (type: 'notion' | 'calendar' | 'gmail', toastTitle: string, fetchStatus: () => void, setLoading: (loading: boolean) => void) => {
+      toast({ title: toastTitle, description: message || `${type} connection established.`, variant: "default" });
+      setLoading(true);
+      fetchStatus();
+      router.replace('/dashboard/settings');
+    };
+
+    if (success === 'notion_connected') handleSuccess('notion', 'Notion Connected!', () => fetch('/api/connectors/notion/status').then(res => res.json()).then(setNotionStatus).finally(() => setIsLoadingNotion(false)), setIsLoadingNotion);
+    if (success === 'calendar_connected') handleSuccess('calendar', 'Google Calendar Connected!', () => fetch('/api/connectors/google-calendar/status').then(res => res.json()).then(setCalendarStatus).finally(() => setIsLoadingCalendar(false)), setIsLoadingCalendar);
+    if (success === 'gmail_connected') handleSuccess('gmail', 'Gmail Connected!', () => fetch('/api/connectors/gmail/status').then(res => res.json()).then(setGmailStatus).finally(() => setIsLoadingGmail(false)), setIsLoadingGmail);
+
     if (error) {
-      toast({
-        title: "Connection Failed",
-        description: message || `${error.replace(/_/g, ' ')} failed. Please try again.`,
-        variant: "destructive",
-      });
-      // Clean the URL
-      router.replace('/dashboard/settings', { scroll: false });
+      let errorMessage = "Connection failed. Please try again.";
+      if (error.includes('notion')) errorMessage = "Failed to connect Notion.";
+      else if (error.includes('calendar')) errorMessage = "Failed to connect Google Calendar.";
+      else if (error.includes('gmail')) errorMessage = "Failed to connect Gmail.";
+      toast({ title: "Connection Failed", description: message || errorMessage, variant: "destructive" });
+      router.replace('/dashboard/settings');
     }
   }, [searchParams, toast, router]);
 
-  const handleConnectNotion = () => {
+  const handleNotionConnect = () => {
     setIsConnectingNotion(true);
     window.location.href = '/api/connectors/notion/auth/start';
   };
 
-  const handleDisconnectNotion = async () => {
+  const handleNotionDisconnect = async () => {
     if (!user) return;
     setIsDisconnectingNotion(true);
     sonnerToast.loading("Disconnecting Notion...", { id: "disconnect-notion" });
     try {
       await fetch('/api/connectors/notion/disconnect', { method: 'POST' });
-      setNotionStatus({ isConnected: false });
+      setNotionStatus({ connectorType: ConnectorType.NOTION, isConnected: false });
       sonnerToast.success("Notion Disconnected Successfully", { id: "disconnect-notion" });
     } catch (error: any) {
-      console.error('[SettingsPage] Error disconnecting Notion:', error);
+      console.error("Error disconnecting Notion:", error);
       sonnerToast.error(`Failed to disconnect: ${error.message}`, { id: "disconnect-notion" });
-      // Re-fetch status on error
-      fetch('/api/connectors/notion/status')
-        .then(res => res.ok ? res.json() : Promise.resolve({isConnected: false}))
-        .then(data => setNotionStatus(data));
+      fetch('/api/connectors/notion/status').then(res => res.json()).then(setNotionStatus);
     } finally {
       setIsDisconnectingNotion(false);
+      setIsLoadingNotion(false);
     }
   };
 
-  const handleSyncNotion = async () => {
+  const handleNotionSync = async () => {
     if (!user || !notionStatus?.isConnected) return;
     setIsSyncingNotion(true);
     const syncToastId = "sync-notion";
-    sonnerToast.loading("Starting Notion sync... This may take a while.", { id: syncToastId });
-
+    sonnerToast.loading("Starting Notion sync...", { id: syncToastId });
     try {
       const response = await fetch('/api/sync/notion', { method: 'POST' });
       const result = await response.json();
-
       if (!response.ok) {
-        if (response.status === 207 && result.errorCount > 0) {
-           sonnerToast.warning(
-            `Sync completed with ${result.errorCount} errors. Processed: ${result.processedCount}. First error: ${result.firstErrorMessage}`,
-            { id: syncToastId, duration: 10000 }
-          );
-        } else {
-           throw new Error(result.error || `Sync failed with status: ${response.status}`);
-        }
-      } else {
-        sonnerToast.success(
-          result.message || `Sync completed! Processed ${result.processedCount} items.`,
-          { id: syncToastId, duration: 5000 }
-        );
+        throw new Error(result.error || 'Sync failed');
       }
-
+      sonnerToast.success(`Notion Sync Complete: ${result.processedItems} items processed.`, { id: syncToastId, duration: 5000 });
     } catch (error: any) {
-      console.error('[SettingsPage] Error syncing Notion:', error);
+      console.error("Error syncing Notion:", error);
       sonnerToast.error(`Sync failed: ${error.message}`, { id: syncToastId });
     } finally {
       setIsSyncingNotion(false);
     }
   };
 
-  const handleSaveConfirmationLevel = (level: ConfirmationLevel) => {
-    if (!profile) return;
-
-    const originalLevel = profile.action_confirmation_level || 'all';
-    setConfirmationLevel(level);
-
-    const formData = new FormData();
-    formData.append('level', level);
-
-    startTransition(() => {
-      sonnerToast.loading("Saving confirmation level...", { id: "save-level" });
-      updateConfirmationLevelAction(formData).then((result) => {
-        if (result.success) {
-          sonnerToast.success(result.message || "Confirmation level saved!", { id: "save-level" });
-        } else {
-          console.error("Error saving confirmation level via Server Action:", result.error);
-          sonnerToast.error(`Failed to save: ${result.error}`, { id: "save-level" });
-          setConfirmationLevel(originalLevel);
-        }
-      });
-    });
+  const handleUpdateConfirmationLevel = async (level: ConfirmationLevel) => {
+    if (!user?.id || !level) return;
+    setIsUpdatingLevel(true);
+    sonnerToast.loading("Updating confirmation level...", { id: "update-level" });
+    try {
+      const formData = new FormData();
+      formData.append('level', level);
+      await updateConfirmationLevelAction(formData);
+      setConfirmationLevel(level);
+      sonnerToast.success("Confirmation level updated successfully", { id: "update-level" });
+    } catch (error: any) {
+      console.error("Failed to update confirmation level:", error);
+      sonnerToast.error(`Update failed: ${error.message}`, { id: "update-level" });
+      fetchProfile();
+    } finally {
+      setIsUpdatingLevel(false);
+    }
   };
 
   const handleConnectGoogleCalendar = () => {
-    setIsConnectingGCal(true);
+    setIsConnectingCalendar(true);
     window.location.href = '/api/connectors/google-calendar/auth/start';
   };
 
   const handleDisconnectGoogleCalendar = async () => {
     if (!user) return;
-    setIsDisconnectingGCal(true);
+    setIsDisconnectingCalendar(true);
     const disconnectToastId = "disconnect-gcal";
     sonnerToast.loading("Disconnecting Google Calendar...", { id: disconnectToastId });
     try {
       const response = await fetch('/api/connectors/google-calendar/disconnect', { method: 'POST' });
       if (!response.ok) throw new Error('Failed to disconnect Google Calendar');
-      setGCalStatus({ isConnected: false });
+      setCalendarStatus({ connectorType: ConnectorType.GOOGLE_CALENDAR, isConnected: false });
       sonnerToast.success("Google Calendar Disconnected", { id: disconnectToastId });
     } catch (error: any) {
       console.error("Error disconnecting Google Calendar:", error);
       sonnerToast.error(`Failed to disconnect: ${error.message}`, { id: disconnectToastId });
-      // Re-fetch status on error
-      fetch('/api/connectors/google-calendar/status')
-        .then(res => res.ok ? res.json() : Promise.resolve({isConnected: false}))
-        .then(data => setGCalStatus(data));
+      fetch('/api/connectors/google-calendar/status').then(res => res.json()).then(setCalendarStatus);
+    } finally {
+      setIsDisconnectingCalendar(false);
+      setIsLoadingCalendar(false);
     }
-    setGCalLoading(false);
-    setIsDisconnectingGCal(false);
   };
 
   const handleSyncGoogleCalendar = async () => {
     console.log("[handleSyncGoogleCalendar] Sync button clicked!");
-    if (!user || !gcalStatus?.isConnected) return;
-    setIsSyncingGCal(true);
+    if (!user || !calendarStatus?.isConnected) return;
+    setIsSyncingCalendar(true);
     const syncToastId = "sync-gcal";
     sonnerToast.loading("Starting Google Calendar sync...", { id: syncToastId });
 
     try {
-       // Make the actual API call
        const response = await fetch('/api/sync/google-calendar', { method: 'POST' });
-       const result = await response.json(); // Assuming the API returns SyncResult JSON
+       const result = await response.json();
 
        if (!response.ok) {
-            // Handle non-2xx responses, including 207 Multi-Status for partial success
             if (response.status === 207 && result.errorCount > 0) {
                 sonnerToast.warning(
                     result.message || `Sync completed with ${result.errorCount} errors. Processed: ${result.processedCount}.`,
@@ -295,7 +287,6 @@ export default function SettingsPage() {
                 throw new Error(result.message || `Sync failed with status: ${response.status}`);
             }
        } else {
-            // Handle success (200 OK)
             sonnerToast.success(
                 result.message || `Sync completed! Processed ${result.processedCount} events.`,
                 { id: syncToastId, duration: 5000 }
@@ -305,7 +296,66 @@ export default function SettingsPage() {
       console.error('[SettingsPage] Error syncing Google Calendar:', error);
       sonnerToast.error(`Sync failed: ${error.message}`, { id: syncToastId });
     } finally {
-      setIsSyncingGCal(false);
+      setIsSyncingCalendar(false);
+    }
+  };
+
+  const handleGmailConnect = () => {
+    window.location.href = '/api/connectors/gmail/auth/start';
+  };
+
+  const handleGmailDisconnect = async () => {
+    if (!user) return;
+    setIsLoadingGmail(true);
+    const disconnectToastId = "disconnect-gmail";
+    sonnerToast.loading("Disconnecting Gmail...", { id: disconnectToastId });
+    try {
+      const res = await fetch('/api/connectors/gmail/disconnect', { method: 'POST' });
+      const data: ConnectionStatus = await res.json();
+      setGmailStatus(data);
+      if (!data.isConnected && !data.error) {
+        sonnerToast.success("Gmail disconnected.", { id: disconnectToastId });
+      } else {
+         sonnerToast.error(`Disconnect failed: ${data.error || 'Unknown error'}`, { id: disconnectToastId });
+         fetch('/api/connectors/gmail/status').then(res => res.json()).then(setGmailStatus);
+      }
+    } catch (error: any) {
+       console.error("Error disconnecting Gmail (fetch failed):", error);
+       sonnerToast.error(`Disconnect failed: ${error.message || 'Network error'}`, { id: disconnectToastId });
+       fetch('/api/connectors/gmail/status').then(res => res.json()).then(setGmailStatus);
+    }
+    setIsLoadingGmail(false);
+  };
+
+  const handleGmailSync = async () => {
+    if (!user || !gmailStatus?.isConnected) return;
+    setIsSyncingGmail(true);
+    const syncToastId = "sync-gmail";
+    sonnerToast.loading("Starting Gmail sync... This may take a while.", { id: syncToastId });
+    try {
+      const response = await fetch('/api/sync/gmail', { method: 'POST' });
+      const result = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 207 && result.errorCount > 0) {
+           sonnerToast.warning(
+            result.message || `Sync completed with ${result.errorCount} errors. Processed: ${result.processedCount}.`,
+            { id: syncToastId, duration: 8000 }
+          );
+        } else {
+           throw new Error(result.message || `Sync failed with status: ${response.status}`);
+        }
+      } else {
+        sonnerToast.success(
+          result.message || `Sync completed! Processed ${result.processedCount} emails.`,
+          { id: syncToastId, duration: 5000 }
+        );
+      }
+    } catch (error: any) {
+      console.error('[SettingsPage] Error syncing Gmail:', error);
+      sonnerToast.error(`Sync failed: ${error.message}`, { id: syncToastId });
+    } finally {
+      setIsSyncingGmail(false);
     }
   };
 
@@ -365,172 +415,144 @@ export default function SettingsPage() {
         <TabsContent value="connections">
           <Card>
             <CardHeader>
-              <CardTitle>Integrations</CardTitle>
-              <CardDescription>Manage external data sources.</CardDescription>
+              <CardTitle>Data Connections</CardTitle>
+              <CardDescription>Connect your external accounts to sync data.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-                {notionLoading ? (
-                    <Skeleton className="h-16 w-full" />
-                ) : (
-                    <div className="flex items-center justify-between p-4 border rounded-md">
-                        <div className="flex items-center gap-3">
-                           <span className="text-2xl">N</span>
-                           <div>
+                <div className="flex items-start justify-between space-x-4 p-4 border rounded-md">
+                    <div className="flex items-center space-x-3">
+                        <span className="font-bold text-lg">N</span>
+                        <div>
                             <p className="font-medium">Notion</p>
                             <p className="text-sm text-muted-foreground">
-                                {notionStatus?.isConnected ? 'Connected' : 'Not Connected'}
+                                {isLoadingNotion ? "Checking status..." : notionStatus?.isConnected ? `Connected as ${notionStatus.accountName || 'Workspace'}` : "Connect your Notion workspace."}
+                                {notionStatus?.error && <span className='text-destructive'> Error: {notionStatus.error}</span>}
                             </p>
-                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          {notionStatus?.isConnected ? (
-                            <>
-                              <Button variant="outline" size="sm" onClick={handleSyncNotion} disabled={isSyncingNotion || isDisconnectingNotion}>
-                                  <RefreshCw className={`mr-2 h-4 w-4 ${isSyncingNotion ? 'animate-spin' : ''}`} />
-                                  {isSyncingNotion ? 'Syncing...' : 'Sync Now'}
-                              </Button>
-                              <Button variant="destructive" size="sm" onClick={handleDisconnectNotion} disabled={isDisconnectingNotion || isSyncingNotion}>
-                                  <Unlink2 className="mr-2 h-4 w-4" />
-                                  {isDisconnectingNotion ? 'Disconnecting...' : 'Disconnect'}
-                              </Button>
-                            </>
-                          ) : (
-                            <Button variant="outline" size="sm" onClick={handleConnectNotion} disabled={isConnectingNotion}>
-                                <Link2 className="mr-2 h-4 w-4" />
-                                {isConnectingNotion ? 'Redirecting...' : 'Connect'}
+                    </div>
+                    {isLoadingNotion ? (
+                        <Skeleton className="h-9 w-[110px]" />
+                    ) : notionStatus?.isConnected ? (
+                        <div className="flex items-center space-x-2">
+                            <Button variant="outline" size="sm" onClick={handleNotionSync} disabled={isSyncingNotion || isDisconnectingNotion}>
+                                <RefreshCw className={`mr-2 h-4 w-4 ${isSyncingNotion ? 'animate-spin' : ''}`} />
+                                {isSyncingNotion ? 'Syncing...' : 'Sync Now'}
                             </Button>
-                          )}
+                            <Button variant="destructive" size="sm" onClick={handleNotionDisconnect}>Disconnect</Button>
+                        </div>
+                    ) : (
+                        <Button size="sm" onClick={handleNotionConnect}>Connect Notion</Button>
+                    )}
+                </div>
+                <div className="flex items-start justify-between space-x-4 p-4 border rounded-md">
+                    <div className="flex items-center space-x-3">
+                        <span className="font-bold text-lg">GC</span>
+                        <div>
+                            <p className="font-medium">Google Calendar</p>
+                            <p className="text-sm text-muted-foreground">
+                                {isLoadingCalendar ? "Checking status..." : calendarStatus?.isConnected ? `Connected as ${calendarStatus.accountName || 'Calendar'}` : "Connect your Google Calendar."}
+                                {calendarStatus?.error && <span className='text-destructive'> Error: {calendarStatus.error}</span>}
+                            </p>
                         </div>
                     </div>
-                )}
-                {gcalLoading ? (
-                    <Skeleton className="h-16 w-full" />
-                ) : (
-                    <div className="flex items-start justify-between p-4 border rounded-md">
-                        <div className="flex items-center gap-3">
-                            <CalendarDays className="h-6 w-6 text-blue-500 flex-shrink-0 mt-px" />
-                            <div>
-                                <p className="font-medium">Google Calendar</p>
-                                <p className="text-sm text-muted-foreground">
-                                    {gcalStatus?.isConnected 
-                                        ? `Connected as: ${gcalStatus.accountIdentifier || 'Connected'}` 
-                                        : 'Not Connected'
-                                    }
-                                </p>
-                                {gcalStatus?.error && <span className="text-red-500 block mt-1 text-xs">Error: {gcalStatus.error}</span>}
-                            </div>
+                    {isLoadingCalendar ? (
+                        <Skeleton className="h-9 w-[110px]" />
+                    ) : calendarStatus?.isConnected ? (
+                        <div className="flex items-center space-x-2">
+                            <Button variant="outline" size="sm" onClick={handleSyncGoogleCalendar} disabled={isSyncingCalendar || isDisconnectingCalendar}>
+                                <RefreshCw className={`mr-2 h-4 w-4 ${isSyncingCalendar ? 'animate-spin' : ''}`} />
+                                {isSyncingCalendar ? 'Syncing...' : 'Sync Now'}
+                            </Button>
+                            <Button variant="destructive" size="sm" onClick={handleDisconnectGoogleCalendar}>Disconnect</Button>
                         </div>
-                        <div className="flex items-center gap-2">
-                            {gcalStatus?.isConnected ? (
-                                <>
-                                    <Button 
-                                        variant="outline" 
-                                        size="sm" 
-                                        onClick={handleSyncGoogleCalendar}
-                                        disabled={isSyncingGCal || isDisconnectingGCal}
-                                    >
-                                        <RefreshCw className={`mr-2 h-4 w-4 ${isSyncingGCal ? 'animate-spin' : ''}`} />
-                                        {isSyncingGCal ? 'Syncing...' : 'Sync Now'}
-                                    </Button>
-                                    <Button 
-                                        variant="destructive" 
-                                        size="sm" 
-                                        onClick={handleDisconnectGoogleCalendar}
-                                        disabled={isDisconnectingGCal || isSyncingGCal}
-                                    >
-                                        {isDisconnectingGCal ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Unlink2 className="mr-2 h-4 w-4" />}
-                                        {isDisconnectingGCal ? 'Disconnecting...' : 'Disconnect'}
-                                    </Button>
-                                </> 
-                            ) : (
-                                <Button 
-                                    variant="outline" 
-                                    size="sm"
-                                    onClick={handleConnectGoogleCalendar}
-                                    disabled={isConnectingGCal}
-                                >
-                                    {isConnectingGCal ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
-                                    {isConnectingGCal ? 'Connecting...' : 'Connect'}
-                                </Button>
-                            )}
+                    ) : (
+                        <Button size="sm" onClick={handleConnectGoogleCalendar}>Connect Calendar</Button>
+                    )}
+                </div>
+                <div className="flex items-start justify-between space-x-4 p-4 border rounded-md">
+                    <div className="flex items-center space-x-3">
+                        <span className="font-bold text-lg">GM</span>
+                        <div>
+                            <p className="font-medium">Gmail</p>
+                            <p className="text-sm text-muted-foreground">
+                                {isLoadingGmail ? "Checking status..." : gmailStatus?.isConnected ? `Connected as ${gmailStatus.accountName || 'Gmail'}` : "Connect your Gmail account."}
+                                {gmailStatus?.error && <span className='text-destructive'> Error: {gmailStatus.error}</span>}
+                            </p>
                         </div>
                     </div>
-                )}
+                    {isLoadingGmail ? (
+                        <Skeleton className="h-9 w-[110px]" />
+                    ) : gmailStatus?.isConnected ? (
+                        <div className="flex items-center space-x-2">
+                            <Button variant="outline" size="sm" onClick={handleGmailSync} disabled={isSyncingGmail || isLoadingGmail}>
+                                <RefreshCw className={`mr-2 h-4 w-4 ${isSyncingGmail ? 'animate-spin' : ''}`} />
+                                {isSyncingGmail ? 'Syncing...' : 'Sync Now'}
+                            </Button>
+                            <Button variant="destructive" size="sm" onClick={handleGmailDisconnect}>Disconnect</Button>
+                        </div>
+                    ) : (
+                        <Button size="sm" onClick={handleGmailConnect}>Connect Gmail</Button>
+                    )}
+                </div>
             </CardContent>
           </Card>
         </TabsContent>
-        <TabsContent value="security">
-          <h2 className="text-xl font-semibold mb-4">Security Settings</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                    <CardTitle>Action Confirmation Level</CardTitle>
-                    <CardDescription>
-                        Control when actions require confirmation.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <RadioGroup
-                        value={confirmationLevel}
-                        onValueChange={handleSaveConfirmationLevel}
-                        disabled={isPending}
-                        className="space-y-4"
-                    >
-                        <div className="flex items-center space-x-3">
-                            <RadioGroupItem value="all" id="confirm-all" />
-                            <Label htmlFor="confirm-all" className="font-normal cursor-pointer">
-                                <span className="font-medium">Confirm All Actions (Recommended)</span>
-                                <p className="text-sm text-muted-foreground">Require confirmation for every action.</p>
-                            </Label>
-                        </div>
-                        <div className="flex items-center space-x-3">
-                            <RadioGroupItem value="high" id="confirm-high" />
-                            <Label htmlFor="confirm-high" className="font-normal cursor-pointer">
-                                <span className="font-medium">Confirm High-Risk Actions</span>
-                                <p className="text-sm text-muted-foreground">Require confirmation for high-risk actions only.</p>
-                            </Label>
-                        </div>
-                        <div className="flex items-center space-x-3">
-                            <RadioGroupItem value="medium" id="confirm-medium" />
-                            <Label htmlFor="confirm-medium" className="font-normal cursor-pointer">
-                                <span className="font-medium">Confirm Medium & High-Risk Actions</span>
-                                <p className="text-sm text-muted-foreground">Require confirmation for medium and high-risk actions.</p>
-                            </Label>
-                        </div>
-                         <div className="flex items-center space-x-3">
-                            <RadioGroupItem value="none" id="confirm-none" />
-                            <Label htmlFor="confirm-none" className="font-normal cursor-pointer">
-                                <span className="font-medium text-red-600 dark:text-red-500">Confirm No Actions (Dangerous)</span>
-                                <p className="text-sm text-muted-foreground">Never require confirmation. Use caution.</p>
-                            </Label>
-                        </div>
-                    </RadioGroup>
-                </CardContent>
-              </Card>
-
-              <Card>
-                  <CardHeader>
-                    <CardTitle>Future Security Settings</CardTitle>
-                    <CardDescription>Options like password management, MFA.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                      <p className="text-muted-foreground">More settings coming soon.</p>
-                  </CardContent>
-              </Card>
-          </div>
-
-          <Card className="mt-6">
+        <TabsContent value="security" className="space-y-6 mt-6">
+          <Card>
              <CardHeader>
-                <CardTitle>Action Audit Trail</CardTitle>
-                <CardDescription>
-                    Review logged actions.
-                </CardDescription>
+               <CardTitle>Action Confirmation</CardTitle>
+               <CardDescription>Choose the level of confirmation required before executing actions.</CardDescription>
              </CardHeader>
              <CardContent>
-                <AuditTrailViewer />
-             </CardContent>
+              {isLoadingLevel ? (
+                <Skeleton className="h-20 w-full" />
+              ) : (
+                <RadioGroup
+                  value={confirmationLevel || 'secure'}
+                  onValueChange={(value) => handleUpdateConfirmationLevel(value as ConfirmationLevel)}
+                  disabled={isUpdatingLevel}
+                >
+                  <div className="flex items-center space-x-3">
+                    <RadioGroupItem value="all" id="confirm-all" />
+                    <Label htmlFor="confirm-all" className="font-normal cursor-pointer">
+                      <span className="font-medium">Confirm All Actions (Recommended)</span>
+                      <p className="text-sm text-muted-foreground">Require confirmation for every action.</p>
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <RadioGroupItem value="high" id="confirm-high" />
+                    <Label htmlFor="confirm-high" className="font-normal cursor-pointer">
+                      <span className="font-medium">Confirm High-Risk Actions</span>
+                      <p className="text-sm text-muted-foreground">Require confirmation for high-risk actions only.</p>
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <RadioGroupItem value="medium" id="confirm-medium" />
+                    <Label htmlFor="confirm-medium" className="font-normal cursor-pointer">
+                      <span className="font-medium">Confirm Medium & High-Risk Actions</span>
+                      <p className="text-sm text-muted-foreground">Require confirmation for medium and high-risk actions.</p>
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <RadioGroupItem value="none" id="confirm-none" />
+                    <Label htmlFor="confirm-none" className="font-normal cursor-pointer">
+                      <span className="font-medium text-red-600 dark:text-red-500">Confirm No Actions (Dangerous)</span>
+                      <p className="text-sm text-muted-foreground">Never require confirmation. Use caution.</p>
+                    </Label>
+                  </div>
+                </RadioGroup>
+              )}
+            </CardContent>
           </Card>
-
+          <Card>
+             <CardHeader>
+               <CardTitle>Action Audit Trail</CardTitle>
+               <CardDescription>Review logs of actions performed or attempted.</CardDescription>
+             </CardHeader>
+             <CardContent>
+                 <AuditTrailViewer />
+              </CardContent>
+          </Card>
         </TabsContent>
         <TabsContent value="billing">
           <Card>

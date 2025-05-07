@@ -1115,3 +1115,61 @@ Each entry follows this format:
 - **Future Considerations**:
   - Expand the list of available timezones in `ProfileForm.tsx`.
   - Implement logic in `/api/llm/test` to robustly parse date/time strings from LLM action parameters and append the user's timezone if it's missing (currently has TODO placeholders).
+
+### [2025-05-07] Gmail Connector Implementation (Initial)
+- **Files Affected**:
+  - `lib/types/data-connector.ts` (updated `DataConnectorType`, added `fileName` to `ConnectorData`, added `accountName` to `ConnectionStatus`)
+  - `app/api/connectors/gmail/auth/start/route.ts` (new)
+  - `app/api/connectors/gmail/auth/callback/route.ts` (new)
+  - `lib/connectors/gmail.ts` (new - `GmailConnector` class)
+  - `app/api/connectors/gmail/status/route.ts` (new)
+  - `app/api/connectors/gmail/disconnect/route.ts` (new)
+  - `app/api/sync/gmail/route.ts` (new)
+  - `app/dashboard/settings/page.tsx` (updated - added Gmail section, buttons, handlers)
+  - `app/api/llm/test/route.ts` (updated - source name mapping logic)
+- **Dependencies Added**: `googleapis` (already present from Google Calendar)
+- **Description**: Implemented the core functionality for the Gmail data connector. This includes the OAuth 2.0 authentication flow (start, callback), token storage using Supabase (`connector_tokens`), status checking, disconnection logic (including token revocation), and UI integration into the settings page. Implemented the initial `fetchData` logic to retrieve emails newer than 1 day for the first sync and trigger the `DocumentProcessor` via the `/api/sync/gmail` route. Addressed various linter and type errors during implementation.
+- **Implementation Notes**:
+  - Followed the established `DataConnector` pattern.
+  - Used `googleapis` library for OAuth and Gmail API interactions.
+  - Implemented token refresh logic within `getConnectionStatus`.
+  - Added helper functions in `gmail.ts` for token management (`saveGmailToken`, `getGmailToken`, `deleteGmailToken`).
+  - Added basic email body parsing (preferring plain text, basic HTML stripping) and header extraction in `transformMessage`.
+  - Set `fileName` in `ConnectorData` to the Gmail message ID.
+  - Added "Sync Now" button to settings UI.
+  - Configured required scopes (`gmail.readonly`, `userinfo.email`, `openid`).
+  - Filtered initial sync to fetch emails only from the last 24 hours (`newer_than:1d`).
+- **Known Issues**:
+  - Source name display in chat UI is incorrect (shows "Unknown Document" or message ID) instead of the email subject. This is likely due to issues in `DocumentProcessor` storing the wrong field in `documents.title` or `match_documents` not retrieving the correct name/metadata. Requires further investigation.
+- **Potential Impacts**:
+  - Users can connect their Gmail accounts.
+  - Recent emails (last 24h) can be manually synced and ingested.
+  - Foundation laid for querying email content.
+- **Future Considerations**:
+  - Fix the source name display issue.
+  - Implement `lastSyncTime` logic for true delta syncs.
+  - Refine email body parsing/HTML stripping.
+  - Add configuration options (e.g., sync older emails, filter by label).
+  - Implement token encryption.
+
+### [2025-05-07] Gmail Connector Source Display Fixes
+- **Files Affected**:
+  - `lib/connectors/gmail.ts` (updated)
+  - `lib/services/document-processor.ts` (updated)
+  - `app/api/llm/test/route.ts` (updated)
+- **Dependencies Added**: None
+- **Description**: Addressed issues with Gmail source display in the LLM chat interface. Ensured email subjects are correctly stored and retrieved for display, and that Gmail messages are clickable with a valid source URL.
+- **Implementation Notes**:
+  - Modified `lib/connectors/gmail.ts`:
+    - Ensured the email `subject` is explicitly added to the `metadata.title` field within the `ConnectorData` returned by `transformMessage`.
+    - Constructed a `gmailUrl` (e.g., `https://mail.google.com/mail/#inbox/[MESSAGE_ID]`) and added it to `metadata.url`.
+  - Modified `lib/services/document-processor.ts`:
+    - Updated `processDocument` to prioritize `providedMetadata.title` (which now gets the subject from the Gmail connector) for the `documents.title` database column, falling back to `fileName`.
+    - Ensured `source_url` is correctly populated from `providedMetadata.url`.
+  - Modified `app/api/llm/test/route.ts`:
+    - Corrected the source chunk mapping to use `chunk.document_title` (the alias for `documents.title` from the `match_documents` function) instead of the non-existent `chunk.document_name` when determining the `displayName`.
+    - Refined logic to ensure `displayName` for Gmail messages is formatted as "Gmail: [Subject]" or "Gmail: Unknown Email" if the subject is unavailable from `chunk.document_title`.
+- **Potential Impacts**:
+  - LLM responses citing Gmail sources should now display the email subject correctly (e.g., "Gmail: Your Subject Here") instead of "Gmail: Unknown Email".
+  - Gmail sources in the UI should now be clickable and link to the correct email in Gmail.
+- **Future Considerations**: None for this specific fix.

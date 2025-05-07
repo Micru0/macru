@@ -162,6 +162,11 @@ export class DocumentProcessor {
     const sourceCreatedAt = formatTimestamp(createdTime || providedMetadata?.createdTime);
     const sourceUpdatedAt = formatTimestamp(lastEditedTime || providedMetadata?.lastEditedTime);
     
+    // --- Determine the title for the document --- 
+    // Prioritize title from metadata (which connectors like Gmail should now provide),
+    // otherwise fall back to fileName (which might be an ID for some connectors).
+    const documentTitle = providedMetadata?.title as string || fileName;
+
     // --- Extract Structured Metadata (now explicitly from providedMetadata.structured) --- 
     const structuredData = providedMetadata?.structured || {}; 
     const final_event_start_time = formatTimestamp(structuredData.event_start_time); // Removed fallback
@@ -186,7 +191,7 @@ export class DocumentProcessor {
     const insertResult = await this.supabase
       .from('documents')
       .insert({
-        title: fileName, 
+        title: documentTitle, // Use the determined documentTitle
         file_path: filePath, // Can be null if rawContent is provided
         file_type: fileType, // Can be null if rawContent is provided
         user_id: userId,

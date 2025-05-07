@@ -12,6 +12,7 @@ import { performance } from 'perf_hooks';
 import { memoryServiceServer } from '@/lib/services/memory-service-server';
 import { cookies } from 'next/headers';
 import { getUserProfile, Profile } from '@/lib/services/user-service';
+import { ConnectorType } from '@/lib/types/data-connector';
 
 // Supabase configuration
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
@@ -130,7 +131,7 @@ export async function POST(request: Request) {
     // Use Service Role Client for unrestricted DB access needed by match_documents
     const supabaseAdmin = createServiceRoleClient(supabaseUrl, supabaseServiceRoleKey);
     
-    let retrievedChunks: SourceChunk[] = []; // Define with correct type
+    let retrievedChunks: SourceChunk[] = []; 
     const searchStartTime = performance.now();
     try {
       // Ensure userId is available before calling the RPC
@@ -173,30 +174,47 @@ export async function POST(request: Request) {
         throw new Error(`Database error searching chunks: ${matchError.message}`);
       }
 
-      // Map Supabase result to SourceChunk interface, including new structured fields
-      const sourceChunks: SourceChunk[] = (matchData || []).map((chunk: any) => ({
-        documentId: chunk.document_id, 
-        documentName: chunk.document_title || 'Unknown Document', 
-        chunkIndex: chunk.chunk_index, 
-        content: chunk.content,
-        similarity: chunk.similarity,
-        metadata: {
-          // Merge existing chunk metadata with structured data from document
-          ...(chunk.metadata || {}),
-          // Explicitly add structured fields retrieved from the function
-          event_start_time: chunk.event_start_time, // NEW
-          event_end_time: chunk.event_end_time,     // NEW
-          due_date: chunk.due_date,                 // NEW
-          content_status: chunk.content_status,       // NEW
-          priority: chunk.priority,                 // NEW
-          location: chunk.location,                 // NEW
-          participants: chunk.participants,         // NEW
-        },
-        documentType: chunk.document_type,
-        source_url: chunk.source_url // Include the source URL
-      }));
+      // Map Supabase result to SourceChunk interface, modifying name for Gmail
+      const sourceChunks: SourceChunk[] = (matchData || []).map((chunk: any) => {
+          // chunk.document_title is from match_documents (d.title AS document_title)
+          let displayName = chunk.document_title; 
+
+          if (chunk.document_type === ConnectorType.GMAIL) {
+            if (displayName && displayName.trim() !== '') {
+              displayName = `Gmail: ${displayName.trim()}`;
+            } else { 
+              displayName = 'Gmail: Unknown Email'; 
+            }
+          } else {
+            if (!displayName || displayName.trim() === '') {
+              displayName = 'Unknown Document';
+            }
+          }
+
+          return {
+            documentId: chunk.document_id, 
+            documentName: displayName, 
+            chunkIndex: chunk.chunk_index, 
+            content: chunk.content,
+            similarity: chunk.similarity,
+            metadata: {
+              // Merge existing chunk metadata with structured data from document
+              ...(chunk.metadata || {}),
+              // Explicitly add structured fields retrieved from the function
+              event_start_time: chunk.event_start_time, // NEW
+              event_end_time: chunk.event_end_time,     // NEW
+              due_date: chunk.due_date,                 // NEW
+              content_status: chunk.content_status,       // NEW
+              priority: chunk.priority,                 // NEW
+              location: chunk.location,                 // NEW
+              participants: chunk.participants,         // NEW
+            },
+            documentType: chunk.document_type, // Use correct property name
+            source_url: chunk.source_url
+          };
+      });
       
-      retrievedChunks = sourceChunks; 
+      retrievedChunks = sourceChunks; // Assign mapped chunks here
       searchTime = performance.now() - searchStartTime;
       console.log(`[API Route] Found ${retrievedChunks.length} relevant chunks. Search Time: ${searchTime.toFixed(2)}ms`);
       
@@ -270,52 +288,52 @@ export async function POST(request: Request) {
     // --- End Original Filtering Block --- 
 
     // --- 3. Assemble Contexts --- 
-    // Include metadata with chunk content
+    // Use finalChunks here, which already have the corrected documentName
     let documentContext = '';
     if (finalChunks.length > 0) {
-      documentContext += '\\n== CONTEXT DOCUMENTS ==\\n';
+      documentContext += '\n== CONTEXT DOCUMENTS ==\n';
       finalChunks.forEach((chunk, index) => {
         // Add clear delimiters for each chunk
-        documentContext += `\\n-- Document Chunk ${index + 1} Start --\\n`;
-        documentContext += `DOCUMENT_ID: ${chunk.documentId}\\n`;
-        documentContext += `DOCUMENT_NAME: ${chunk.documentName}\\n`;
-        documentContext += `SOURCE_TYPE: ${chunk.documentType || 'unknown'}\\n`; // Include source type
+        documentContext += `\n-- Document Chunk ${index + 1} Start --\n`;
+        documentContext += `DOCUMENT_ID: ${chunk.documentId}\n`;
+        documentContext += `DOCUMENT_NAME: ${chunk.documentName}\n`;
+        documentContext += `SOURCE_TYPE: ${chunk.documentType || 'unknown'}\n`; // Include source type
 
         // Add structured metadata if available
         if (chunk.metadata) {
-          documentContext += '[Metadata Start]\\n';
-          documentContext += `  Chunk Index: ${chunk.metadata.chunkIndex}\\n`;
+          documentContext += '[Metadata Start]\n';
+          documentContext += `  Chunk Index: ${chunk.metadata.chunkIndex}\n`;
           if (chunk.metadata.event_start_time) {
-            documentContext += `  Event Start: ${new Date(chunk.metadata.event_start_time).toLocaleString()}\\n`;
+            documentContext += `  Event Start: ${new Date(chunk.metadata.event_start_time).toLocaleString()}\n`;
           }
           if (chunk.metadata.event_end_time) {
-            documentContext += `  Event End: ${new Date(chunk.metadata.event_end_time).toLocaleString()}\\n`;
+            documentContext += `  Event End: ${new Date(chunk.metadata.event_end_time).toLocaleString()}\n`;
           }
           if (chunk.metadata.due_date) {
-            documentContext += `  Due Date: ${new Date(chunk.metadata.due_date).toLocaleString()}\\n`;
+            documentContext += `  Due Date: ${new Date(chunk.metadata.due_date).toLocaleString()}\n`;
           }
           if (chunk.metadata.content_status) {
-            documentContext += `  Status: ${chunk.metadata.content_status}\\n`;
+            documentContext += `  Status: ${chunk.metadata.content_status}\n`;
           }
           if (chunk.metadata.priority) {
-            documentContext += `  Priority: ${chunk.metadata.priority}\\n`;
+            documentContext += `  Priority: ${chunk.metadata.priority}\n`;
           }
            if (chunk.metadata.location) {
-            documentContext += `  Location: ${chunk.metadata.location}\\n`;
+            documentContext += `  Location: ${chunk.metadata.location}\n`;
           }
            if (chunk.metadata.participants && chunk.metadata.participants.length > 0) {
-            documentContext += `  Participants: ${chunk.metadata.participants.join(', ')}\\n`;
+            documentContext += `  Participants: ${chunk.metadata.participants.join(', ')}\n`;
           }
           // Add other relevant structured metadata fields here
-          documentContext += '[Metadata End]\\n';
+          documentContext += '[Metadata End]\n';
         }
 
         // Add content
-        documentContext += '[Content Start]\\n';
-        documentContext += `${chunk.content}\\n`;
-        documentContext += '[Content End]\\n';
+        documentContext += '[Content Start]\n';
+        documentContext += `${chunk.content}\n`;
+        documentContext += '[Content End]\n';
 
-        documentContext += `-- Document Chunk ${index + 1} End --\\n`;
+        documentContext += `-- Document Chunk ${index + 1} End --\n`;
       });
     }
       
@@ -412,23 +430,26 @@ export async function POST(request: Request) {
 
     // --- 4. Process Response & Extract Sources --- 
     const processingStartTime = performance.now();
-    let identifiedSources: SourceChunk[] = [];
     let processedText = llmResponse.text || ''; // Use empty string if text is null/undefined
 
+    // --- Prepare sources based on LLM output (if provided) --- 
+    let sourcesForResponse: SourceChunk[] = []; // Initialize empty
     const sourceLineMatch = processedText.match(/\nPrimary Sources: (.*)/);
 
     if (sourceLineMatch && sourceLineMatch[1].trim().toLowerCase() !== 'none') {
       const llmSourceIds = sourceLineMatch[1].split(',').map(id => id.trim()).filter(id => id);
       console.log(`[API Route Sources] LLM identified primary sources: [${llmSourceIds.join(', ')}]`);
 
-      // Filter retrievedChunks to match LLM provided IDs
-      identifiedSources = retrievedChunks.filter(chunk => 
-        llmSourceIds.some(llmId => chunk.documentId.startsWith(llmId)) // Use startsWith for potential truncation
+      // Filter the *original* retrievedChunks (before title-based filtering)
+      // to find the sources mentioned by the LLM. We use retrievedChunks 
+      // because finalChunks might have been narrowed down by title.
+      sourcesForResponse = retrievedChunks.filter(chunk => 
+        llmSourceIds.some(llmId => chunk.documentId.startsWith(llmId))
       );
       
-      // Deduplicate based on documentId to avoid showing multiple chunks from the same doc unless necessary
+      // Deduplicate based on documentId 
       const uniqueSourceIds = new Set<string>();
-      identifiedSources = identifiedSources.filter(source => {
+      sourcesForResponse = sourcesForResponse.filter(source => {
         if (!uniqueSourceIds.has(source.documentId)) {
           uniqueSourceIds.add(source.documentId);
           return true;
@@ -436,29 +457,31 @@ export async function POST(request: Request) {
         return false;
       });
       
-      console.log(`[API Route Sources] Using sources provided by LLM: ${identifiedSources.length} unique sources.`);
-
-      // Remove the source line from the response text shown to the user
+      console.log(`[API Route Sources] Using sources provided by LLM: ${sourcesForResponse.length} unique sources.`);
       processedText = processedText.replace(/\nPrimary Sources: .*/, '').trim();
     } else {
-      // Fallback: LLM didn't provide sources or said None
       console.log("[API Route Sources] LLM did not provide explicit primary sources or indicated None.");
-      // **NEW BEHAVIOR**: Return empty sources list in this case
-      identifiedSources = []; 
+      sourcesForResponse = []; // Keep empty if LLM provided none
     }
 
     const processingEndTime = performance.now();
     const processingTime = (processingEndTime - processingStartTime).toFixed(2);
 
     // --- 6. Process Response and Add Citations --- 
-    const responseProcessor = new ResponseProcessor();
-    const processedResponse: ProcessedResponse = responseProcessor.processResponse(
-      processedText, // Pass the cleaned processed text
-      identifiedSources // Use the identified sources for citation
+    const responseProcessor = new ResponseProcessor(); 
+    responseProcessor.processResponse(
+      processedText, 
+      sourcesForResponse // Pass SourceChunk[] here
     );
 
     // --- 7. Cache Store ---
-    queryCache.set(cacheKey, processedResponse);
+    // Map SourceChunk[] to Source[] for caching
+    const sourcesForCache: Source[] = sourcesForResponse.map(chunk => ({
+      id: chunk.documentId,
+      title: chunk.documentName // Use documentName as title for cache
+      // Add other fields if Source type requires them for caching
+    }));
+    queryCache.set(cacheKey, { responseText: processedText, sources: sourcesForCache }); // Cache Source[]
     // --- End Cache Store ---
 
     const endTime = performance.now();
@@ -466,13 +489,13 @@ export async function POST(request: Request) {
     // Update log to remove autoMemTime
     console.log(`[API Route - Success] Total Time: ${totalTime.toFixed(2)}ms (Embed: ${embeddingTime.toFixed(2)}ms, Search: ${searchTime.toFixed(2)}ms, Memory: ${memoryTime.toFixed(2)}ms, LLM: ${llmTime.toFixed(2)}ms, Process: ${processingTime}ms)`);
 
-    // Use the potentially modified response object
+    // Return the processed text and the original identified sources (SourceChunk[])
     response = NextResponse.json({
-       response: { 
-         responseText: processedText, // Use the cleaned processed text
-         sources: identifiedSources 
-       } 
-     });
+       response: {
+         responseText: processedText, 
+         sources: sourcesForResponse // Return the sources identified (or empty array)
+       }
+    });
     // TODO: Manually copy cookies if necessary
     return response;
   } catch (error: any) {

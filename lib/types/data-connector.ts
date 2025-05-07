@@ -36,6 +36,7 @@ export interface ConnectorData {
   type: string; // e.g., 'page', 'database_item', 'email', 'event'
   title: string;
   content: string; // Raw or semi-structured content
+  fileName?: string; // Optional: Filename associated with the data (e.g., for uploads, or constructed like message ID)
   metadata: Record<string, any>; // Source-specific metadata (timestamps, author, URLs, etc.)
   source: ConnectorType; // Track the origin
   lastModified?: Date; // Optional: Last modified time in source system
@@ -45,6 +46,7 @@ export interface ConnectorData {
 export interface ConnectionStatus {
   connectorType: ConnectorType;
   isConnected: boolean;
+  accountName?: string; // Add optional account name
   lastSyncTime?: Date;
   lastSyncStatus?: SyncStatus;
   syncProgress?: number; // Optional: 0-100 for progress indication
@@ -82,4 +84,6 @@ export interface DataConnector {
 
   // Optional: Update configuration options
   // updateConfigOptions?(userId: string, options: Record<string, any>): Promise<void>;
-} 
+}
+
+export type DataConnectorType = 'notion' | 'google_calendar' | 'gmail'; 

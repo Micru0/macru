@@ -117,6 +117,7 @@ Macru - Unified CAG App - Product Requirements Document (PRD)
 	◦	Agent Protocol Integration (MCP, A2A).
 	◦	Collaboration features (if applicable).
 	◦	Advanced analytics/visualization of user data.
+	◦	Integration with Mixpanel (for analytics data ingestion) as a future data connector.
 6. Logical Dependency Chain
 	1	Foundation: Auth, Basic UI Shell, Core Supabase setup.
 	2	Ingestion Path (Files): File Upload UI -> Storage -> Ingestion Pipeline (Processing, Chunking, Embedding) -> DB Storage. (Needs to be working before querying).
